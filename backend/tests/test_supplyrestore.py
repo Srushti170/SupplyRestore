@@ -82,6 +82,24 @@ def test_flagship_scenario_replans_and_finishes_verified(sim, contract):
     assert any(e.content.get("tool") == "create_purchase_order" for e in run.events)
 
 
+def test_manual_inventory_and_demand_drive_action_quantity(sim, contract):
+    sim.warehouses["WH-NORTH"].inventory["SKU-100"] = 12
+    sim.warehouses["WH-SOUTH"].inventory["SKU-100"] = 50
+    next(order for order in sim.orders if order.id == "ORD-001").qty = 20
+    run = run_agent(sim, contract, provider_name="fake", scenario="flagship")
+    action_quantities = [event.content["input"]["qty"] for event in run.events if event.content.get("tool") in {"transfer_inventory", "create_purchase_order"}]
+    assert action_quantities == [8, 8]
+    assert run.status == "verified"
+    assert sim.warehouses["WH-NORTH"].inventory["SKU-100"] == 20
+
+
+def test_sufficient_manual_inventory_verifies_without_recovery_action(sim, contract):
+    sim.warehouses["WH-NORTH"].inventory["SKU-100"] = 35
+    run = run_agent(sim, contract, provider_name="fake", scenario="flagship")
+    assert run.status == "verified"
+    assert not any(event.content.get("tool") in {"transfer_inventory", "create_purchase_order"} for event in run.events)
+
+
 def test_infeasible_contract_ends_cleanly_without_provider_error(sim):
     strict = RecoveryContract(max_extra_cost=100, max_extra_carbon=20, max_delay_hours=2)
     run = run_agent(sim, strict, provider_name="fake", scenario="flagship")

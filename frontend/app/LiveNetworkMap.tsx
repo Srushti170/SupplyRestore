@@ -10,6 +10,7 @@ type AgentEvent = { type: string; content: { tool?: string; output?: Record<stri
 type Props = {
   warehouses: WarehousePoint[];
   activeWarehouseId: number | null;
+  sourceWarehouse?: WarehousePoint | null;
   events: AgentEvent[];
   runStatus?: string;
   labels: {
@@ -58,16 +59,16 @@ function FitNetwork({ points }: { points: LatLngExpression[] }) {
 const truckIcon = divIcon({ className: "network-truck", html: "<span>🚚</span>", iconSize: [28, 28], iconAnchor: [14, 14] });
 const checkIcon = divIcon({ className: "network-check", html: "<span>✓</span>", iconSize: [26, 26], iconAnchor: [13, 13] });
 
-export default function LiveNetworkMap({ warehouses, activeWarehouseId, events, runStatus, labels }: Props) {
+export default function LiveNetworkMap({ warehouses, activeWarehouseId, sourceWarehouse, events, runStatus, labels }: Props) {
   const active = warehouses.find(item => item.id === activeWarehouseId) || warehouses[0];
   const warehousePoints = useMemo(() => warehouses.map((warehouse, index) => ({ ...warehouse, coords: resolveLocation(warehouse.location, index) })), [warehouses]);
   const target = warehousePoints.find(item => item.id === active?.id) || warehousePoints[0];
   const targetCoords: [number, number] = target?.coords || CITY_COORDS.mumbai;
   const targetLocation = target?.location.toLowerCase() || "mumbai";
-  const reserveCity = targetLocation.includes("nagpur") ? "Mumbai" : "Nagpur";
+  const reserveCity = sourceWarehouse?.location || (targetLocation.includes("nagpur") ? "Mumbai" : "Nagpur");
   const rapidCity = targetLocation.includes("pune") ? "Mumbai" : "Pune";
   const budgetCity = targetLocation.includes("kolkata") || targetLocation.includes("calcutta") ? "Mumbai" : "Kolkata";
-  const reserveCoords: [number, number] = CITY_COORDS[reserveCity.toLowerCase()];
+  const reserveCoords: [number, number] = resolveLocation(reserveCity);
   const rapidSupplier: [number, number] = CITY_COORDS[rapidCity.toLowerCase()];
   const budgetSupplier: [number, number] = CITY_COORDS[budgetCity.toLowerCase()];
   const transferStarted = events.some(event => event.content.tool === "transfer_inventory");
@@ -95,7 +96,7 @@ export default function LiveNetworkMap({ warehouses, activeWarehouseId, events, 
       </Polyline>
 
       {warehousePoints.map(warehouse => <CircleMarker key={warehouse.id} center={warehouse.coords} radius={warehouse.id === target?.id ? 10 : 7} pathOptions={{ color: warehouse.id === target?.id ? "#052117" : "#93c5fd", fillColor: warehouse.id === target?.id ? "#56e39a" : "#3b82f6", fillOpacity: 1, weight: warehouse.id === target?.id ? 4 : 2 }}><Popup><strong>{warehouse.name}</strong><br />{warehouse.location}<br />{warehouse.id === target?.id ? labels.active : labels.warehouse}</Popup></CircleMarker>)}
-      <CircleMarker center={reserveCoords} radius={7} pathOptions={{ color: "#b8d3ff", fillColor: "#3b82f6", fillOpacity: 1, weight: 2 }}><Tooltip direction="top">South Reserve Hub · {reserveCity}</Tooltip></CircleMarker>
+      {!sourceWarehouse || !warehouses.some(warehouse => warehouse.id === sourceWarehouse.id) ? <CircleMarker center={reserveCoords} radius={7} pathOptions={{ color: "#b8d3ff", fillColor: "#3b82f6", fillOpacity: 1, weight: 2 }}><Tooltip direction="top">{sourceWarehouse?.name || "External Reserve Hub"} · {reserveCity}</Tooltip></CircleMarker> : null}
       <CircleMarker center={rapidSupplier} radius={7} pathOptions={{ color: "#e9d5ff", fillColor: "#a855f7", fillOpacity: 1, weight: 2 }}><Tooltip direction="top">RapidSupply · {rapidCity}<br />{labels.supplier}</Tooltip></CircleMarker>
       <CircleMarker center={budgetSupplier} radius={6} pathOptions={{ color: "#e9d5ff", fillColor: "#7e22ce", fillOpacity: .9, weight: 2 }}><Tooltip direction="top">ValueSource · {budgetCity}<br />{labels.supplier}</Tooltip></CircleMarker>
       {moving && <Marker position={truckPosition} icon={truckIcon}><Popup>{labels.selected}<br />{progress}%</Popup></Marker>}

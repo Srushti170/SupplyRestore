@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import hmac
+import json
 import os
 import secrets
 import sqlite3
@@ -24,6 +25,7 @@ class SignupRequest(BaseModel):
     password: str = Field(min_length=6, max_length=128)
     warehouse_name: str = Field(min_length=2, max_length=100)
     warehouse_location: str = Field(min_length=3, max_length=200)
+    warehouse_inventory: int = Field(default=0, ge=0, le=1_000_000)
 
 
 class LoginRequest(BaseModel):
@@ -34,6 +36,11 @@ class LoginRequest(BaseModel):
 class WarehouseRequest(BaseModel):
     name: str = Field(min_length=2, max_length=100)
     location: str = Field(min_length=3, max_length=200)
+    inventory: int = Field(default=0, ge=0, le=1_000_000)
+
+
+class WarehouseInventoryRequest(BaseModel):
+    inventory: int = Field(ge=0, le=1_000_000)
 
 
 def _connect() -> sqlite3.Connection:
@@ -60,21 +67,52 @@ def init_auth_db() -> None:
         )
         connection.execute(
             """
-            CREATE TABLE IF NOT EXISTS warehouses (
+            CREATE TABLE IF NOT EXISTS recovery_history (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_id TEXT NOT NULL UNIQUE,
                 user_id INTEGER NOT NULL,
-                name TEXT NOT NULL,
-                location TEXT NOT NULL,
+                status TEXT NOT NULL,
+                destination_name TEXT NOT NULL,
+                destination_location TEXT NOT NULL,
+                payload TEXT NOT NULL,
                 created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
                 FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
             )
             """
         )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS warehouses (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                user_id INTEGER NOT NULL,
+                name TEXT NOT NULL,
+                location TEXT NOT NULL,
+                sku_100 INTEGER NOT NULL DEFAULT 4,
+                created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+                FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+            )
+            """
+        )
+        columns = {row["name"] for row in connection.execute("PRAGMA table_info(warehouses)").fetchall()}
+        if "sku_100" not in columns:
+            connection.execute("ALTER TABLE warehouses ADD COLUMN sku_100 INTEGER NOT NULL DEFAULT 4")
+        if connection.execute("PRAGMA user_version").fetchone()[0] < 2:
+            connection.execute(
+                """
+                UPDATE warehouses
+                SET sku_100 = CASE
+                    WHEN (SELECT COUNT(*) FROM warehouses previous WHERE previous.user_id = warehouses.user_id AND previous.id <= warehouses.id) = 1 THEN 4
+                    WHEN (SELECT COUNT(*) FROM warehouses previous WHERE previous.user_id = warehouses.user_id AND previous.id <= warehouses.id) = 2 THEN 40
+                    ELSE MIN(36, 14 + 4 * (SELECT COUNT(*) FROM warehouses previous WHERE previous.user_id = warehouses.user_id AND previous.id <= warehouses.id))
+                END
+                """
+            )
+            connection.execute("PRAGMA user_version = 2")
         try:
             connection.execute(
                 """
-                INSERT INTO warehouses (user_id, name, location)
-                SELECT id, warehouse_name, warehouse_location FROM users
+                INSERT INTO warehouses (user_id, name, location, sku_100)
+                SELECT id, warehouse_name, warehouse_location, 4 FROM users
                 WHERE NOT EXISTS (SELECT 1 FROM warehouses WHERE warehouses.user_id = users.id)
                 """
             )
@@ -100,7 +138,8 @@ def _password_matches(password: str, stored: str) -> bool:
 
 def _public_user(row: sqlite3.Row) -> dict:
     with _connect() as connection:
-        warehouses = [dict(item) for item in connection.execute("SELECT id, name, location FROM warehouses WHERE user_id = ? ORDER BY id", (row["id"],)).fetchall()]
+        warehouse_rows = connection.execute("SELECT id, name, location, sku_100 FROM warehouses WHERE user_id = ? ORDER BY id", (row["id"],)).fetchall()
+        warehouses = [{"id": item["id"], "name": item["name"], "location": item["location"], "inventory": {"SKU-100": item["sku_100"]}} for item in warehouse_rows]
     primary = warehouses[0] if warehouses else {"name": row["warehouse_name"], "location": row["warehouse_location"]}
     return {
         "id": row["id"],
@@ -129,8 +168,8 @@ def signup(payload: SignupRequest) -> dict:
                 values,
             )
             connection.execute(
-                "INSERT INTO warehouses (user_id, name, location) VALUES (?, ?, ?)",
-                (cursor.lastrowid, values["warehouse_name"], values["warehouse_location"]),
+                "INSERT INTO warehouses (user_id, name, location, sku_100) VALUES (?, ?, ?, ?)",
+                (cursor.lastrowid, values["warehouse_name"], values["warehouse_location"], payload.warehouse_inventory),
             )
             row = connection.execute("SELECT * FROM users WHERE id = ?", (cursor.lastrowid,)).fetchone()
     except sqlite3.IntegrityError:
@@ -180,9 +219,73 @@ def add_warehouse(user_id: int, payload: WarehouseRequest) -> dict:
     if not name or not location:
         raise HTTPException(status_code=400, detail="Warehouse name and location are required")
     with _connect() as connection:
-        connection.execute("INSERT INTO warehouses (user_id, name, location) VALUES (?, ?, ?)", (user_id, name, location))
+        connection.execute("INSERT INTO warehouses (user_id, name, location, sku_100) VALUES (?, ?, ?, ?)", (user_id, name, location, payload.inventory))
         row = connection.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
     return _public_user(row)
+
+
+def update_warehouse_inventory(user_id: int, warehouse_id: int, inventory: int) -> dict:
+    with _connect() as connection:
+        cursor = connection.execute(
+            "UPDATE warehouses SET sku_100 = ? WHERE id = ? AND user_id = ?",
+            (inventory, warehouse_id, user_id),
+        )
+        if cursor.rowcount != 1:
+            raise HTTPException(status_code=404, detail="Warehouse not found")
+        row = connection.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    return _public_user(row)
+
+
+def apply_verified_inventory(
+    user_id: int,
+    destination_id: int,
+    destination_stock: int,
+    source_id: int | None,
+    source_stock: int | None,
+) -> None:
+    """Atomically write a verified simulator outcome back to owned warehouses."""
+    with _connect() as connection:
+        destination = connection.execute(
+            "UPDATE warehouses SET sku_100 = ? WHERE id = ? AND user_id = ?",
+            (destination_stock, destination_id, user_id),
+        )
+        if destination.rowcount != 1:
+            raise HTTPException(status_code=404, detail="Destination warehouse not found")
+        if source_id is not None and source_stock is not None:
+            source = connection.execute(
+                "UPDATE warehouses SET sku_100 = ? WHERE id = ? AND user_id = ?",
+                (source_stock, source_id, user_id),
+            )
+            if source.rowcount != 1:
+                raise HTTPException(status_code=404, detail="Source warehouse not found")
+
+
+def save_recovery_history(user_id: int, run_id: str, status: str, destination_name: str, destination_location: str, payload: dict) -> None:
+    with _connect() as connection:
+        connection.execute(
+            """
+            INSERT OR REPLACE INTO recovery_history
+                (run_id, user_id, status, destination_name, destination_location, payload)
+            VALUES (?, ?, ?, ?, ?, ?)
+            """,
+            (run_id, user_id, status, destination_name, destination_location, json.dumps(payload)),
+        )
+
+
+def get_recovery_history(user_id: int) -> list[dict]:
+    with _connect() as connection:
+        rows = connection.execute(
+            "SELECT id, run_id, status, destination_name, destination_location, payload, created_at FROM recovery_history WHERE user_id = ? ORDER BY id DESC",
+            (user_id,),
+        ).fetchall()
+    return [
+        {
+            "id": row["id"], "run_id": row["run_id"], "status": row["status"],
+            "destination_name": row["destination_name"], "destination_location": row["destination_location"],
+            "created_at": row["created_at"], **json.loads(row["payload"]),
+        }
+        for row in rows
+    ]
 
 
 init_auth_db()

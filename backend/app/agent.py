@@ -39,6 +39,15 @@ class FakeProvider:
         ("verify_recovery_contract", {}),
     ]
 
+    def __init__(self) -> None:
+        self.plan = [(name, dict(arguments)) for name, arguments in type(self).plan]
+
+    def set_shortage(self, sku: str, qty: int) -> None:
+        for index, (name, arguments) in enumerate(self.plan):
+            if name in {"get_vendor_options", "compare_recovery_options", "transfer_inventory", "create_purchase_order"}:
+                updated = {**arguments, "sku": sku, "qty": qty}
+                self.plan[index] = (name, updated)
+
     def next_tool(self, history: list[dict], step: int) -> tuple[str, dict]:
         name, args = self.plan[step]
         if args.get("action_id") == "$last_action":
@@ -264,7 +273,7 @@ def _run_fast_groq(sim: SimulationState, contract: RecoveryContract, run: AgentR
             action_name, action_args = provider.select_action(comparison, "recovery replan after failed action")
         except Exception as exc:
             _log(run, "error", title="AI replan unavailable", message=str(exc))
-            run.status = "infeasible" if reason == "infeasible" else "failed"
+            run.status = "failed"
             return run
         _log(run, "decision", title="AI selected alternate action", message=f"The live agent selected {action_name.replace('_', ' ')} after the disruption.")
         pause()
@@ -345,6 +354,9 @@ def run_agent(sim: SimulationState, contract: RecoveryContract, provider_name: s
                     result = execute_tool(sim, name, arguments, contract)
         else:
             result = execute_tool(sim, name, arguments, contract)
+        if name == "calculate_projected_shortages" and not result.get("error") and result.get("shortages"):
+            shortage = max(result["shortages"], key=lambda item: item["shortage_qty"])
+            provider.set_shortage(shortage["sku"], shortage["shortage_qty"])
         if name == "compare_recovery_options" and not result.get("error"):
             compared = True
             last_comparison = result
@@ -354,6 +366,13 @@ def run_agent(sim: SimulationState, contract: RecoveryContract, provider_name: s
         _log(run, EVENT_TYPES.get(name, "tool"), title=title, tool=name, input=arguments, output=result, step=step + 1)
         if step_delay:
             time.sleep(random.uniform(step_delay, step_delay + 1))
+
+        if name == "calculate_projected_shortages" and not result.get("error") and not result.get("shortages"):
+            verification = execute_tool(sim, "verify_recovery_contract", {}, contract)
+            _log(run, "certificate", title="Verify Recovery Contract", tool="verify_recovery_contract", input={}, output=verification, step=step + 2)
+            run.verification = verification
+            run.status = "verified" if verification.get("passed") else "failed"
+            break
 
         if name in {"transfer_inventory", "create_purchase_order"} and result.get("action_id"):
             route_id = arguments.get("route_id", "R-VN")
