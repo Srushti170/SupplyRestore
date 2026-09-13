@@ -1,3 +1,4 @@
+@import "leaflet/dist/leaflet.css";
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
@@ -19,3 +20,13 @@ input, select { color-scheme: dark; }
 button { font: inherit; }
 ::-webkit-scrollbar { width: 8px; }
 ::-webkit-scrollbar-thumb { background: #284338; border-radius: 8px; }
+.leaflet-container { background: #0b1813; font-family: inherit; }
+.leaflet-control-attribution { background: rgba(7, 18, 14, .82) !important; color: #7f998d; font-size: 8px !important; }
+.leaflet-control-attribution a { color: #65dca0; }
+.leaflet-tooltip { border: 1px solid #315144; background: #0a1712; color: #dcebe4; box-shadow: 0 8px 24px rgba(0,0,0,.35); font-size: 10px; }
+.leaflet-tooltip-top:before { border-top-color: #315144; }
+.network-route-active { animation: network-dash 1.1s linear infinite; }
+.network-truck, .network-check { background: transparent; border: 0; }
+.network-truck span { display: grid; width: 28px; height: 28px; place-items: center; border-radius: 50%; background: #0a1712; border: 2px solid #56e39a; font-size: 15px; box-shadow: 0 0 18px rgba(86,227,154,.55); }
+.network-check span { display: grid; width: 26px; height: 26px; place-items: center; border-radius: 50%; background: #56e39a; color: #052117; border: 3px solid #e3fff0; font-size: 15px; font-weight: 900; box-shadow: 0 0 20px rgba(86,227,154,.65); }
+@keyframes network-dash { to { stroke-dashoffset: -44; } }

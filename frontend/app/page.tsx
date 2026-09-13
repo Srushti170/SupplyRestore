@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import {
   Activity, AlertTriangle, ArrowRight, BadgeCheck, Boxes, Check, CircleDollarSign,
   Cloud, FileCheck2, Gauge, LoaderCircle, LockKeyhole, LogIn, LogOut, MapPin, Network,
@@ -10,6 +11,7 @@ import {
 import { CHECK_LABELS, COPY, EVENT_LABELS, Locale, TOOL_LABELS } from "./i18n";
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+const LiveNetworkMap = dynamic(() => import("./LiveNetworkMap"), { ssr: false });
 
 type Candidate = { id: string; label: string; cost: number; carbon: number; delay_hours: number; score: number; feasible: boolean; infeasible_reason?: string | null; vendor_id?: string | null; vendor_name?: string | null; vendor_reliability?: number | null; route_id?: string };
 type Comparison = { candidates: Candidate[]; recommended?: string; reason?: string };
@@ -313,7 +315,7 @@ export default function Home() {
       </div>
     </header>
 
-    <div className="grid gap-5 xl:grid-cols-[330px_minmax(0,1fr)_340px]">
+    <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)_340px]">
       <div className="space-y-5">
         <Panel className="p-5">
           <div className="mb-5 flex items-start justify-between"><div><p className="text-[11px] font-bold uppercase tracking-[.18em] text-[#5cdd99]">{text.recoveryContract}</p><h2 className="mt-1 text-lg font-semibold">{text.guardrails}</h2></div><ShieldCheck className="text-[#4ad58e]" size={22} /></div>
@@ -327,11 +329,8 @@ export default function Home() {
           </div>
         </Panel>
         <Panel className="overflow-hidden">
-          <div className="flex items-center justify-between border-b border-[#203b31] px-5 py-4"><h3 className="text-sm font-semibold">{text.liveNetwork}</h3><Network size={16} className="text-[#6a8b7d]" /></div>
-          <div className="p-3">
-            {(run?.state.routes || []).map(route => <div key={route.id} className="mb-2 flex items-center gap-3 rounded-xl bg-[#091510] p-3 last:mb-0"><div className={`h-2.5 w-2.5 rounded-full ${route.status === "open" ? "bg-[#4edb91]" : "bg-[#ff6868] shadow-[0_0_12px_#ff686866]"}`} /><div className="min-w-0 flex-1"><div className="font-mono text-xs font-semibold">{route.id}</div><div className="truncate text-[11px] text-[#6e897d]">{route.from} → {route.to}</div></div><span className={`rounded px-2 py-1 text-[10px] font-bold uppercase ${route.status === "open" ? "bg-emerald-950 text-emerald-300" : "bg-red-950 text-red-300"}`}>{route.status === "open" ? text.open : text.closed}</span></div>)}
-            {!run && <div className="py-8 text-center text-xs text-[#627b70]"><Route className="mx-auto mb-2" size={22} />{text.networkWaiting}</div>}
-          </div>
+          <div className="flex items-center justify-between border-b border-[#203b31] px-5 py-4"><div><h3 className="text-sm font-semibold">{text.liveNetwork}</h3><p className="mt-0.5 max-w-[280px] truncate text-[10px] text-[#698277]">{activeWarehouse?.name} · {activeWarehouse?.location}</p></div><Network size={16} className="text-[#6a8b7d]" /></div>
+          <LiveNetworkMap warehouses={user?.warehouses || []} activeWarehouseId={activeWarehouseId} events={run?.events || []} runStatus={run?.status} labels={{ active: text.mapActive, warehouse: text.mapWarehouse, supplier: text.mapSupplier, available: text.availableRoute, selected: text.selectedPath, closed: text.closed, verified: text.mapVerified, simulated: text.simulationNote }} />
         </Panel>
       </div>
 
@@ -372,7 +371,7 @@ export default function Home() {
       </div>
     </div>
 
-    {warehouseOpen && <div className="fixed inset-0 z-50 grid place-items-center bg-black/75 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="add-warehouse-title">
+    {warehouseOpen && <div className="fixed inset-0 z-[2000] grid place-items-center bg-black/75 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="add-warehouse-title">
       <div className="relative w-full max-w-md rounded-2xl border border-[#315442] bg-[#0b1813] p-6 shadow-[0_28px_100px_rgba(0,0,0,.65)]">
         <button onClick={() => setWarehouseOpen(false)} aria-label={text.cancel} className="absolute right-4 top-4 grid h-9 w-9 place-items-center rounded-full border border-[#30473e] bg-[#101f19] text-[#91a99f] hover:text-white"><X size={17} /></button>
         <div className="mb-5 flex items-start gap-3"><div className="grid h-10 w-10 shrink-0 place-items-center rounded-xl bg-[#173426] text-[#63e1a1]"><Warehouse size={20} /></div><div><h2 id="add-warehouse-title" className="text-lg font-bold">{text.addWarehouse}</h2><p className="mt-1 text-xs text-[#789187]">{text.addWarehouseBody}</p></div></div>
@@ -386,7 +385,7 @@ export default function Home() {
       </div>
     </div>}
 
-    {run && resultOpen && run.status !== "running" && <div className="fixed inset-0 z-50 grid place-items-center bg-black/75 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="recovery-result-title">
+    {run && resultOpen && run.status !== "running" && <div className="fixed inset-0 z-[2000] grid place-items-center bg-black/75 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="recovery-result-title">
       <div className={`relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border bg-[#0b1813] shadow-[0_28px_100px_rgba(0,0,0,.65)] ${run.status === "verified" ? "border-[#3a8f61]" : run.status === "infeasible" ? "border-[#83602e]" : "border-red-900"}`}>
         <button onClick={() => { setResultOpen(false); setDismissedRunId(run.id); }} aria-label={text.closeResult} className="absolute right-4 top-4 z-10 grid h-9 w-9 place-items-center rounded-full border border-[#30473e] bg-[#101f19] text-[#91a99f] transition hover:border-[#547264] hover:text-white"><X size={17} /></button>
         <div className={`px-6 pb-5 pt-7 text-center ${run.status === "verified" ? "bg-[radial-gradient(circle_at_top,rgba(60,207,134,.16),transparent_70%)]" : run.status === "infeasible" ? "bg-[radial-gradient(circle_at_top,rgba(245,158,11,.14),transparent_70%)]" : "bg-[radial-gradient(circle_at_top,rgba(239,68,68,.12),transparent_70%)]"}`}>
