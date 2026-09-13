@@ -1,20 +1,37 @@
 # SupplyRestore
 
-SupplyRestore is a verification-first autonomous retail supply-chain recovery application. It monitors a logistics network, detects projected shortages, investigates warehouse and vendor alternatives, scores recovery options against an operator-defined contract, takes action, verifies the physical effect, and replans when conditions change.
+SupplyRestore is a hackathon application for autonomous retail supply-chain recovery. It monitors a simulated network, detects shortages, investigates warehouse and supplier options, optimizes within an operator-defined recovery contract, executes a recovery action, verifies its outcome, and replans when a disruption invalidates the original choice.
 
-The flagship scenario is repeatable: an inter-warehouse transfer initially wins, its route closes after dispatch, verification catches the failure and reconciles inventory, then the agent purchases from an eligible rapid vendor and issues a passed Recovery Certificate.
+## What it demonstrates
 
-## Architecture
+- Goal → decision → action → intermediate verification → adaptation → final outcome.
+- Groq-powered LLM agent making approved action and replan decisions through typed tools.
+- Deterministic optimizer enforcing cost, carbon, delay, fulfilment, route, and supplier constraints.
+- Supplier learning: simulated delivery outcomes update supplier rewards and later recommendations.
+- SQLite-backed account, warehouse, inventory, and recovery-history data.
+- Live dashboard with recovery timeline, map, decision evolution, and final certificate.
 
-- `backend/`: FastAPI, Pydantic domain models, in-memory simulation, ten typed tools, deterministic optimizer, fake and Groq agent providers, and pytest coverage.
-- `frontend/`: Next.js, React, TypeScript, Tailwind operator control room. It polls run state every 1.5 seconds.
-- State is deliberately single-user and in-memory. `POST /reset` restores the fixed seed.
+See [ARCHITECTURE.md](ARCHITECTURE.md) for the workflow and component design.
 
-The live workflow uses deterministic orchestration for mandatory monitoring and verification tools, while Groq makes the two consequential action decisions: the initial recovery choice and the post-disruption replan. Every individual tool execution is still recorded as its own timeline event, reducing latency without reducing rubric evidence.
+## Tech stack
 
-## Setup
+| Layer | Technology |
+| --- | --- |
+| Frontend | Next.js 16, React 19, TypeScript, Tailwind CSS, Leaflet |
+| Backend | Python 3.12+, FastAPI, Pydantic, Uvicorn |
+| Agent provider | Groq (default: `qwen/qwen3.6-27b`) |
+| Storage | SQLite |
+| Tests | pytest |
 
-Requirements: Python 3.12+ and Node.js 20.9+.
+## Prerequisites
+
+- Node.js 20.9 or newer
+- Python 3.12 or newer
+- A Groq API key for live LLM decisions (optional; the local deterministic provider can run without one)
+
+## Local setup
+
+From the repository root:
 
 ```powershell
 cd backend
@@ -24,13 +41,32 @@ pip install -r requirements.txt
 
 cd ..\frontend
 npm install
+cd ..
 ```
 
-The website does not expose model-provider controls to operators. By default the backend uses its deterministic local agent so the application works without any external account. For live LLM operation, copy `backend/.env.example` to `backend/.env` and set `GROQ_API_KEY`; the server then selects the configured provider automatically. The pinned default is `qwen/qwen3.6-27b`. Override it with `GROQ_MODEL` if needed.
+## Environment configuration
 
-## Run
+Never commit your `.env` files or API key.
 
-In two PowerShell terminals from the repository root:
+```powershell
+Copy-Item backend\.env.example backend\.env
+Copy-Item frontend\.env.local.example frontend\.env.local
+```
+
+```dotenv
+# backend/.env
+GROQ_API_KEY=your_private_groq_key
+GROQ_MODEL=qwen/qwen3.6-27b
+```
+
+```dotenv
+# frontend/.env.local
+NEXT_PUBLIC_API_URL=http://localhost:8000
+```
+
+## Run locally
+
+Open two PowerShell terminals at the repository root:
 
 ```powershell
 .\start-backend.ps1
@@ -40,34 +76,32 @@ In two PowerShell terminals from the repository root:
 .\start-frontend.ps1
 ```
 
-Open [http://localhost:3000](http://localhost:3000). API documentation is available at [http://localhost:8000/docs](http://localhost:8000/docs).
+Open `http://localhost:3000`. The API docs are at `http://localhost:8000/docs`.
 
 ## Test and build
 
 ```powershell
 cd backend
-.\.venv\Scripts\python.exe -m pytest -q
+.\.venv\Scripts\python.exe -m pytest
 
 cd ..\frontend
 npm run build
 ```
 
-## 60-second walkthrough
+## Demo data
 
-1. Open the control room and point out the Recovery Contract's hard limits.
-2. Choose **Start recovery**.
-3. Follow the live timeline through monitoring, shortage detection, route/vendor investigation, and the side-by-side optimizer comparison.
-4. Show the transfer winning on cost and carbon, then the simulator closing its route mid-flight.
-5. Show failed effect verification, the explicit replan, and the emergency purchase.
-6. Finish on the green Recovery Certificate and its fulfilment, cost, carbon, and delay evidence.
-7. Start another run to demonstrate that reset makes the workflow repeatable. When the server has a valid LLM API key, it automatically uses the live model without exposing infrastructure choices in the operator interface.
+For a reliable replan demonstration, create warehouses in Kolkata, Delhi, and Nagpur. Choose Kolkata as destination, set its SKU-100 inventory to `4`, Delhi to `40`, Nagpur to `18`, and request `30` units. Set minimum fulfilment to `100%`, maximum cost to `$500`, maximum carbon to `100 kg`, and maximum delay to `8 h`. The transfer is disrupted and the agent replans to an eligible supplier.
 
-## API
+## Repository layout
 
-- `POST /reset`
-- `POST /contracts`
-- `POST /runs`
-- `GET /runs/{id}`
-- `GET /runs/{id}/certificate`
+```text
+backend/       FastAPI API, agent orchestration, optimizer, simulator, SQLite persistence, tests
+frontend/      Next.js operator dashboard
+start-backend.ps1
+start-frontend.ps1
+ARCHITECTURE.md
+```
 
-Success is gated exclusively by a passed `verify_recovery_contract` result. An action response by itself can never mark a run verified.
+## Deployment note
+
+For cloud deployment, configure `GROQ_API_KEY` and `NEXT_PUBLIC_API_URL` in the host environment, allow the deployed frontend URL in backend CORS, and use persistent storage if recovery history must survive server restarts.

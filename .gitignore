@@ -6,4 +6,7 @@ frontend/node_modules/
 frontend/.next/
 .env
 .env.local
+backend/.env
+frontend/.env.local
+backend/data/*.db
 *.pyc
