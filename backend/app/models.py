@@ -78,7 +78,7 @@ class AgentEvent(BaseModel):
 
 class AgentRun(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid4()))
-    status: Literal["running", "verified", "failed"] = "running"
+    status: Literal["running", "verified", "infeasible", "failed"] = "running"
     provider: str = "fake"
     events: list[AgentEvent] = Field(default_factory=list)
     verification: dict[str, Any] | None = None
@@ -93,4 +93,3 @@ class VerificationCheck(BaseModel):
 class VerificationResult(BaseModel):
     passed: bool
     checks: list[VerificationCheck]
-

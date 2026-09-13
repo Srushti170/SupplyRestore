@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import random
 import time
 from typing import Protocol
 
@@ -176,15 +177,19 @@ def _run_fast_groq(sim: SimulationState, contract: RecoveryContract, run: AgentR
 
     step = 0
 
+    def pause() -> None:
+        if step_delay:
+            time.sleep(random.uniform(step_delay, step_delay + 1))
+
     def call(name: str, arguments: dict) -> dict:
         nonlocal step
         step += 1
         result = execute_tool(sim, name, arguments, contract)
         _log(run, EVENT_TYPES.get(name, "tool"), title=name.replace("_", " ").title(), tool=name, input=arguments, output=result, step=step)
-        if step_delay:
-            time.sleep(step_delay)
+        pause()
         return result
 
+    pause()
     call("get_inventory", {})
     call("get_shipment_status", {})
     shortage_result = call("calculate_projected_shortages", {"warehouse_id": "WH-NORTH"})
@@ -207,7 +212,7 @@ def _run_fast_groq(sim: SimulationState, contract: RecoveryContract, run: AgentR
         verification = call("verify_recovery_contract", {})
         run.verification = verification
         _log(run, "infeasible", title="Recovery contract is infeasible", message="No available recovery option can satisfy all current contract limits. Adjust the contract or restore network capacity, then start a new run.")
-        run.status = "failed"
+        run.status = "infeasible"
         return True
 
     if stop_if_infeasible(comparison):
@@ -220,6 +225,7 @@ def _run_fast_groq(sim: SimulationState, contract: RecoveryContract, run: AgentR
         run.status = "failed"
         return run
     _log(run, "decision", title="AI selected recovery action", message=f"The live agent selected {action_name.replace('_', ' ')} after reviewing the optimizer output.")
+    pause()
     action = call(action_name, action_args)
     if action.get("error"):
         run.status = "failed"
@@ -229,10 +235,12 @@ def _run_fast_groq(sim: SimulationState, contract: RecoveryContract, run: AgentR
         sim.routes[action_args["route_id"]].status = "closed"
         sim.disruption_triggered = True
         _log(run, "disruption", title="Route closed mid-transfer", message=f"Simulator closed {action_args['route_id']} after dispatch and before verification.", route_id=action_args["route_id"])
+        pause()
 
     effect = call("verify_action_effect", {"action_id": action["action_id"]})
     if effect.get("passed") is False:
         _log(run, "replan", title="Live replan required", message="The chosen action is no longer viable. Re-investigating alternatives.")
+        pause()
         call("get_network_state", {"sku": sku})
         call("get_vendor_options", {"sku": sku, "qty": qty})
         comparison = call("compare_recovery_options", {"sku": sku, "qty": qty})
@@ -242,9 +250,10 @@ def _run_fast_groq(sim: SimulationState, contract: RecoveryContract, run: AgentR
             action_name, action_args = provider.select_action(comparison, "recovery replan after failed action")
         except Exception as exc:
             _log(run, "error", title="AI replan unavailable", message=str(exc))
-            run.status = "failed"
+            run.status = "infeasible" if reason == "infeasible" else "failed"
             return run
         _log(run, "decision", title="AI selected alternate action", message=f"The live agent selected {action_name.replace('_', ' ')} after the disruption.")
+        pause()
         action = call(action_name, action_args)
         if action.get("error"):
             run.status = "failed"
@@ -279,6 +288,8 @@ def run_agent(sim: SimulationState, contract: RecoveryContract, provider_name: s
     compared = False
     last_comparison: dict | None = None
     max_steps = 18
+    if step_delay:
+        time.sleep(random.uniform(step_delay, step_delay + 1))
     for step in range(max_steps):
         try:
             name, arguments = provider.next_tool(history, step)
@@ -294,7 +305,7 @@ def run_agent(sim: SimulationState, contract: RecoveryContract, provider_name: s
                 title="Recovery contract is infeasible" if reason == "infeasible" else "Agent stopped before verified recovery",
                 message=arguments.get("message", "No verified recovery was produced."),
             )
-            run.status = "failed"
+            run.status = "infeasible" if reason == "infeasible" else "failed"
             break
         if name in {"get_network_state", "get_vendor_options"}:
             investigated.add(name)
@@ -324,7 +335,7 @@ def run_agent(sim: SimulationState, contract: RecoveryContract, provider_name: s
         title = name.replace("_", " ").title()
         _log(run, EVENT_TYPES.get(name, "tool"), title=title, tool=name, input=arguments, output=result, step=step + 1)
         if step_delay:
-            time.sleep(step_delay)
+            time.sleep(random.uniform(step_delay, step_delay + 1))
 
         if name == "compare_recovery_options" and not result.get("error") and result.get("recommended") is None:
             verification = execute_tool(sim, "verify_recovery_contract", {}, contract)
@@ -332,19 +343,23 @@ def run_agent(sim: SimulationState, contract: RecoveryContract, provider_name: s
             _log(run, "certificate", title="Verify Recovery Contract", tool="verify_recovery_contract", input={}, output=verification, step=step + 1)
             run.verification = verification
             _log(run, "infeasible", title="Recovery contract is infeasible", message="No available recovery option can satisfy all current contract limits. Adjust the contract or restore network capacity, then start a new run.")
-            run.status = "failed"
+            run.status = "infeasible"
             break
 
         if name == "transfer_inventory" and result.get("action_id") and not sim.disruption_triggered:
             sim.routes[arguments["route_id"]].status = "closed"
             sim.disruption_triggered = True
             _log(run, "disruption", title="Route closed mid-transfer", message=f"Simulator closed {arguments['route_id']} after dispatch and before verification.", route_id=arguments["route_id"])
+            if step_delay:
+                time.sleep(random.uniform(step_delay, step_delay + 1))
         if name in {"transfer_inventory", "create_purchase_order"} and result.get("action_id"):
             investigated = set()
             compared = False
             last_comparison = None
         if name == "verify_action_effect" and result.get("passed") is False:
             _log(run, "replan", title="Live replan required", message="The chosen action is no longer viable. Re-investigating alternatives.")
+            if step_delay:
+                time.sleep(random.uniform(step_delay, step_delay + 1))
         if name == "verify_recovery_contract":
             run.verification = result
             if result.get("passed") is True:
@@ -352,7 +367,7 @@ def run_agent(sim: SimulationState, contract: RecoveryContract, provider_name: s
                 break
             if last_comparison and last_comparison.get("recommended") is None:
                 _log(run, "infeasible", title="Recovery contract is infeasible", message="No available recovery option can satisfy all current contract limits. Adjust the contract or restore network capacity, then start a new run.")
-                run.status = "failed"
+                run.status = "infeasible"
                 break
     if run.status == "running":
         run.status = "failed"

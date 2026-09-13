@@ -68,7 +68,7 @@ def create_run(request: RunRequest) -> dict:
     state.runs[run.id] = run
     def worker() -> None:
         try:
-            run_agent(state, contract, provider, request.scenario, run=run, step_delay=.22 if provider == "fake" else 0)
+            run_agent(state, contract, provider, request.scenario, run=run, step_delay=2.0)
         except Exception as exc:
             run.status = "failed"
             run.events.append(AgentEvent(type="error", content={"title": "Run failed", "message": str(exc)}))

@@ -172,6 +172,9 @@ def compare_recovery_options(sim: SimulationState, args: CompareInput, contract:
     purchase = {
         "id": "purchase", "type": "purchase", "label": "Emergency purchase order",
         "sku": args.sku, "qty": args.qty, "vendor_id": vendor.id if vendor else None,
+        "vendor_name": vendor.name if vendor else None,
+        "vendor_reliability": vendor.reliability if vendor else None,
+        "route_id": "R-VN",
         "cost": ((vendor.unit_cost + sim.routes["R-VN"].cost_per_unit) * args.qty) if vendor else 0,
         "carbon": sim.routes["R-VN"].carbon_per_unit * args.qty,
         "delay_hours": vendor.lead_time_hours if vendor else 999, "fulfilment_pct": 100.0,

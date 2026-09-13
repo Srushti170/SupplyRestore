@@ -33,6 +33,8 @@ def test_optimizer_compares_and_ranks_both_plans(sim, contract):
     assert result["recommended"] == "transfer"
     transfer, purchase = result["candidates"]
     assert transfer["score"] < purchase["score"]
+    assert purchase["vendor_name"] == "RapidSupply"
+    assert purchase["route_id"] == "R-VN"
     sim.routes["R-SN"].status = "closed"
     replanned = compare_recovery_options(sim, CompareInput(sku="SKU-100", qty=26), contract)
     unavailable = next(c for c in replanned["candidates"] if c["id"] == "transfer")
@@ -83,7 +85,7 @@ def test_flagship_scenario_replans_and_finishes_verified(sim, contract):
 def test_infeasible_contract_ends_cleanly_without_provider_error(sim):
     strict = RecoveryContract(max_extra_cost=100, max_extra_carbon=20, max_delay_hours=2)
     run = run_agent(sim, strict, provider_name="fake", scenario="flagship")
-    assert run.status == "failed"
+    assert run.status == "infeasible"
     assert run.verification["passed"] is False
     assert any(e.type == "infeasible" for e in run.events)
     assert not any(e.content.get("title") == "Provider stopped" for e in run.events)
@@ -91,6 +93,8 @@ def test_infeasible_contract_ends_cleanly_without_provider_error(sim):
 
 
 def test_fast_live_path_keeps_full_logs_with_only_two_ai_decisions(sim, contract, monkeypatch):
+    pauses = []
+
     class StubGroqProvider:
         decisions = 0
 
@@ -105,10 +109,13 @@ def test_fast_live_path_keeps_full_logs_with_only_two_ai_decisions(sim, contract
             return "create_purchase_order", {"sku": selected["sku"], "qty": selected["qty"], "vendor_id": selected["vendor_id"]}
 
     monkeypatch.setattr(agent_module, "GroqProvider", StubGroqProvider)
-    run = run_agent(sim, contract, provider_name="groq", scenario="flagship")
+    monkeypatch.setattr(agent_module.time, "sleep", pauses.append)
+    run = run_agent(sim, contract, provider_name="groq", scenario="flagship", step_delay=2.0)
     tools = [e.content.get("tool") for e in run.events if e.content.get("tool")]
     assert run.status == "verified"
     assert StubGroqProvider.decisions == 2
+    assert len(pauses) == len(run.events)
+    assert all(2.0 <= seconds <= 3.0 for seconds in pauses)
     assert tools == [
         "get_inventory", "get_shipment_status", "calculate_projected_shortages",
         "get_network_state", "get_vendor_options", "compare_recovery_options",
