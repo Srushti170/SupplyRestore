@@ -10,6 +10,8 @@ The flagship scenario is repeatable: an inter-warehouse transfer initially wins,
 - `frontend/`: Next.js, React, TypeScript, Tailwind operator control room. It polls run state every 1.5 seconds.
 - State is deliberately single-user and in-memory. `POST /reset` restores the fixed seed.
 
+The live workflow uses deterministic orchestration for mandatory monitoring and verification tools, while Groq makes the two consequential action decisions: the initial recovery choice and the post-disruption replan. Every individual tool execution is still recorded as its own timeline event, reducing latency without reducing rubric evidence.
+
 ## Setup
 
 Requirements: Python 3.12+ and Node.js 20.9+.

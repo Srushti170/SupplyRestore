@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Activity, AlertTriangle, ArrowRight, BadgeCheck, Boxes, Check, CircleDollarSign,
   Cloud, FileCheck2, Gauge, LoaderCircle, Network, Play, RotateCcw, Route, ShieldCheck,
@@ -9,7 +9,8 @@ import {
 
 const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
 
-type Candidate = { id: string; label: string; cost: number; carbon: number; delay_hours: number; score: number; feasible: boolean };
+type Candidate = { id: string; label: string; cost: number; carbon: number; delay_hours: number; score: number; feasible: boolean; infeasible_reason?: string | null };
+type Comparison = { candidates: Candidate[]; recommended?: string; reason?: string };
 type Event = { type: string; timestamp: string; content: { title?: string; message?: string; tool?: string; output?: Record<string, any> } };
 type Run = { id: string; status: string; provider: string; events: Event[]; verification?: { passed: boolean; checks: CheckResult[] }; state: State };
 type CheckResult = { name: string; passed: boolean; detail: string };
@@ -21,6 +22,7 @@ const eventStyle: Record<string, { color: string; icon: typeof Activity }> = {
   goal: { color: "#73e6aa", icon: ShieldCheck }, monitor: { color: "#7db7ff", icon: Activity },
   detection: { color: "#ffb35c", icon: AlertTriangle }, investigation: { color: "#b29aff", icon: Network },
   comparison: { color: "#f2cf68", icon: Gauge }, action: { color: "#68dbe0", icon: Truck },
+  decision: { color: "#b29aff", icon: Sparkles },
   disruption: { color: "#ff6b6b", icon: X }, verification: { color: "#f59eaa", icon: FileCheck2 },
   replan: { color: "#ff9f6e", icon: RotateCcw }, certificate: { color: "#54e090", icon: BadgeCheck },
   infeasible: { color: "#ffb35c", icon: AlertTriangle },
@@ -44,8 +46,13 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [agentMode, setAgentMode] = useState<"checking" | "live_ai" | "local_deterministic" | "offline">("checking");
+  const startingRef = useRef(false);
+  const runActive = loading || run?.status === "running";
 
-  const comparison = useMemo(() => run?.events.findLast?.(e => e.type === "comparison")?.content.output as { candidates?: Candidate[]; recommended?: string; reason?: string } | undefined, [run]);
+  const comparisons = useMemo(() => {
+    const all = (run?.events || []).filter(event => event.type === "comparison" && Array.isArray(event.content.output?.candidates)).map(event => event.content.output as Comparison);
+    return all.length > 2 ? [all[0], all[all.length - 1]] : all;
+  }, [run]);
 
   useEffect(() => {
     fetch(`${API}/health`).then(response => response.ok ? response.json() : Promise.reject()).then(data => setAgentMode(data.agent_mode)).catch(() => setAgentMode("offline"));
@@ -61,9 +68,15 @@ export default function Home() {
   }, [run?.id, run?.status]);
 
   async function startRun() {
+    if (startingRef.current || run?.status === "running") return;
+    startingRef.current = true;
     setLoading(true); setError(""); setRun(null);
     try {
-      await fetch(`${API}/reset`, { method: "POST" });
+      const resetResponse = await fetch(`${API}/reset`, { method: "POST" });
+      if (!resetResponse.ok) {
+        const resetError = await resetResponse.json();
+        throw new Error(resetError.detail || "Could not reset the recovery environment");
+      }
       const contractResponse = await fetch(`${API}/contracts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
       if (!contractResponse.ok) throw new Error("Could not create Recovery Contract");
       const contract = await contractResponse.json();
@@ -73,7 +86,7 @@ export default function Home() {
       const detail = await fetch(`${API}/runs/${started.id}`);
       setRun(await detail.json());
     } catch (cause) { setError(cause instanceof Error ? cause.message : "Unexpected error"); }
-    finally { setLoading(false); }
+    finally { startingRef.current = false; setLoading(false); }
   }
 
   return <main className="relative mx-auto max-w-[1500px] px-5 py-5 lg:px-8">
@@ -94,7 +107,7 @@ export default function Home() {
               ["min_fulfilment_pct", "Minimum fulfilment", "%"], ["max_extra_cost", "Maximum extra cost", "$"],
               ["max_extra_carbon", "Maximum carbon", "kg"], ["max_delay_hours", "Maximum delay", "hours"],
             ].map(([key, label, unit]) => <label className="block" key={key}><span className="mb-1.5 flex justify-between text-xs text-[#91a99f]"><span>{label}</span><span>{unit}</span></span><input type="number" value={form[key as keyof typeof form]} onChange={e => setForm({ ...form, [key]: Number(e.target.value) })} className="w-full rounded-lg border border-[#284238] bg-[#08130f] px-3 py-2.5 font-mono text-sm outline-none transition focus:border-[#50d895]" /></label>)}
-            <button onClick={startRun} disabled={loading} className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-[#56e39a] px-4 py-3 text-sm font-bold text-[#062117] transition hover:bg-[#73ecad] disabled:opacity-60">{loading ? <LoaderCircle className="animate-spin" size={17} /> : <Play size={17} fill="currentColor" />}{loading ? "Recovering…" : "Start recovery"}</button>
+            <button onClick={startRun} disabled={runActive} aria-busy={runActive} className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-[#56e39a] px-4 py-3 text-sm font-bold text-[#062117] transition hover:bg-[#73ecad] disabled:cursor-not-allowed disabled:opacity-60">{runActive ? <LoaderCircle className="animate-spin" size={17} /> : <Play size={17} fill="currentColor" />}{runActive ? "Recovery in progress…" : "Start recovery"}</button>
             {error && <p className="rounded-lg border border-red-900/60 bg-red-950/30 p-3 text-xs text-red-300">{error}</p>}
           </div>
         </Panel>
@@ -119,7 +132,22 @@ export default function Home() {
           </div>
         </Panel>
 
-        {comparison?.candidates && <Panel className="p-5"><div className="mb-4 flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-widest text-[#f2cf68]">Deterministic optimizer</p><h3 className="mt-1 font-semibold">Recovery options compared</h3></div><Gauge className="text-[#f2cf68]" size={20} /></div><div className="grid gap-3 md:grid-cols-2">{comparison.candidates.map(candidate => { const selected = comparison.recommended === candidate.id; return <div key={candidate.id} className={`relative rounded-xl border p-4 ${selected ? "border-[#56e39a] bg-[#10251c] shadow-[0_0_24px_rgba(86,227,154,.08)]" : "border-[#2b3934] bg-[#09130f] opacity-75"}`}>{selected && <span className="absolute right-3 top-3 rounded bg-[#56e39a] px-2 py-1 text-[9px] font-black uppercase tracking-wider text-[#052117]">Winner</span>}<div className="mb-4 flex items-center gap-2">{candidate.id === "transfer" ? <Truck size={18} /> : <ShoppingCart size={18} />}<h4 className="text-sm font-semibold">{candidate.label}</h4></div><div className="grid grid-cols-3 gap-2 text-center"><div><p className="text-[10px] uppercase text-[#667e73]">Cost</p><p className="mt-1 font-mono text-sm">${candidate.cost}</p></div><div><p className="text-[10px] uppercase text-[#667e73]">Carbon</p><p className="mt-1 font-mono text-sm">{candidate.carbon}kg</p></div><div><p className="text-[10px] uppercase text-[#667e73]">Delay</p><p className="mt-1 font-mono text-sm">{candidate.delay_hours}h</p></div></div><div className="mt-4 flex items-center justify-between border-t border-[#294036] pt-3 text-xs"><span className="text-[#718a7f]">Weighted score</span><span className="font-mono font-bold text-white">{candidate.score.toFixed(4)}</span></div></div>})}</div><p className="mt-3 text-xs text-[#7d968b]">{comparison.reason}</p></Panel>}
+        {comparisons.length > 0 && <Panel className="p-5">
+          <div className="mb-5 flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-widest text-[#f2cf68]">Deterministic optimizer</p><h3 className="mt-1 font-semibold">Decision evolution</h3><p className="mt-1 text-xs text-[#6f887d]">Why the recovery plan changed after the disruption</p></div><Gauge className="text-[#f2cf68]" size={20} /></div>
+          <div className={`grid gap-3 ${comparisons.length > 1 ? "lg:grid-cols-2" : ""}`}>
+            {comparisons.map((comparison, stageIndex) => <div key={stageIndex} className="overflow-hidden rounded-xl border border-[#263f35] bg-[#09140f]">
+              <div className="flex items-center justify-between border-b border-[#20372e] px-4 py-3">
+                <div className="flex items-center gap-3"><span className={`grid h-7 w-7 place-items-center rounded-full font-mono text-[11px] font-bold ${stageIndex === 0 ? "bg-[#26382e] text-[#b2c7bd]" : "bg-[#1d4934] text-[#68e6a4]"}`}>0{stageIndex + 1}</span><div><p className="text-xs font-semibold">{stageIndex === 0 ? "Initial decision" : "Recovery replan"}</p><p className="mt-0.5 text-[10px] text-[#6d867b]">{stageIndex === 0 ? "Before route disruption" : "After route R-SN closed"}</p></div></div>
+                {stageIndex > 0 && <span className="rounded-full bg-[#42251d] px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-[#ffa57e]">Replanned</span>}
+              </div>
+              <div className="space-y-2 p-3">{comparison.candidates.map(candidate => { const selected = comparison.recommended === candidate.id; return <div key={candidate.id} className={`rounded-lg border px-3 py-3 ${selected ? "border-[#3b9d69] bg-[#10271d]" : !candidate.feasible ? "border-[#56332f] bg-[#211412]" : "border-[#263a32] bg-[#0c1813]"}`}>
+                <div className="flex items-start justify-between gap-3"><div className="flex min-w-0 gap-2.5">{candidate.id === "transfer" ? <Truck className={selected ? "text-[#60e49d]" : "text-[#7d958a]"} size={16} /> : <ShoppingCart className={selected ? "text-[#60e49d]" : "text-[#7d958a]"} size={16} />}<div className="min-w-0"><p className="truncate text-xs font-semibold">{candidate.label}</p><p className="mt-1 font-mono text-[10px] text-[#789085]">${candidate.cost} · {candidate.carbon}kg · {candidate.delay_hours}h</p></div></div>
+                  <div className="shrink-0 text-right">{selected ? <span className="rounded bg-[#56e39a] px-2 py-1 text-[9px] font-black uppercase tracking-wider text-[#052117]">Selected</span> : !candidate.feasible ? <span className="rounded bg-[#5b2b25] px-2 py-1 text-[9px] font-bold uppercase tracking-wider text-[#ff9d8b]">Unavailable</span> : <span className="font-mono text-[11px] text-[#82998f]">{candidate.score.toFixed(4)}</span>}{!candidate.feasible && <p className="mt-1.5 max-w-[135px] text-[9px] leading-3 text-[#d48778]">{candidate.infeasible_reason || "Contract constraint violated"}</p>}</div></div>
+              </div>})}</div>
+              <div className="border-t border-[#20372e] px-4 py-3 text-[10px] leading-4 text-[#718a7f]">{comparison.reason}</div>
+            </div>)}
+          </div>
+        </Panel>}
       </div>
 
       <div className="space-y-5">

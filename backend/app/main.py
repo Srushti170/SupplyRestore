@@ -40,6 +40,8 @@ def health() -> dict:
 
 @app.post("/reset")
 def reset() -> dict:
+    if any(run.status == "running" for run in state.runs.values()):
+        raise HTTPException(status_code=409, detail="A recovery run is already in progress")
     state.reset()
     return {"ok": True, "state": state.snapshot()}
 
@@ -52,6 +54,8 @@ def create_contract(contract: RecoveryContract) -> RecoveryContract:
 
 @app.post("/runs")
 def create_run(request: RunRequest) -> dict:
+    if any(run.status == "running" for run in state.runs.values()):
+        raise HTTPException(status_code=409, detail="A recovery run is already in progress")
     contract = state.contracts.get(request.contract_id)
     if not contract:
         raise HTTPException(status_code=404, detail="Recovery Contract not found")

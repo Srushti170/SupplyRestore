@@ -60,6 +60,56 @@ class GroqProvider:
         ]
         self.pending_call_id: str | None = None
 
+    def select_action(self, comparison: dict, phase: str) -> tuple[str, dict]:
+        """Ask the live model to choose an action from a completed deterministic comparison."""
+        action_tools = [
+            tool for tool in groq_tool_definitions()
+            if tool["function"]["name"] in {"transfer_inventory", "create_purchase_order"}
+        ]
+        recommended = comparison.get("recommended")
+        candidate = next((item for item in comparison.get("candidates", []) if item.get("id") == recommended), None)
+        if not candidate:
+            raise RuntimeError("The optimizer produced no feasible action candidate")
+        expected_name = "transfer_inventory" if recommended == "transfer" else "create_purchase_order"
+        expected_args = {
+            "sku": candidate["sku"],
+            "qty": candidate["qty"],
+            "route_id" if recommended == "transfer" else "vendor_id": candidate["route_id" if recommended == "transfer" else "vendor_id"],
+        }
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": (
+                f"Decision phase: {phase}. The deterministic optimizer has completed its contract checks. "
+                f"Review the comparison and call the recommended feasible action using its exact SKU, quantity, and route/vendor. "
+                f"Comparison: {json.dumps(comparison)}"
+            )},
+        ]
+        for attempt in range(2):
+            try:
+                response = self.client.chat.completions.create(
+                    model=self.model,
+                    messages=messages,
+                    tools=action_tools,
+                    tool_choice="required",
+                    parallel_tool_calls=False,
+                    temperature=0,
+                    max_completion_tokens=128,
+                    reasoning_effort="none",
+                )
+            except Exception as exc:
+                if attempt == 0 and ("tool_use_failed" in str(exc) or "not in request.tools" in str(exc)):
+                    messages.append({"role": "user", "content": f"Call exactly {expected_name} with exactly these arguments: {json.dumps(expected_args)}"})
+                    continue
+                raise
+            message = response.choices[0].message
+            if message.tool_calls:
+                call = message.tool_calls[0]
+                arguments = json.loads(call.function.arguments or "{}")
+                if call.function.name == expected_name and arguments == expected_args:
+                    return call.function.name, arguments
+            messages.append({"role": "user", "content": f"That selection did not match the feasible optimizer result. Call exactly {expected_name} with exactly these arguments: {json.dumps(expected_args)}"})
+        raise RuntimeError("The live model did not select the optimizer-approved action")
+
     def next_tool(self, history: list[dict], step: int) -> tuple[str, dict]:
         if history:
             last = history[-1]
@@ -115,6 +165,98 @@ def _log(run: AgentRun, event_type: str, **content) -> None:
     run.events.append(AgentEvent(type=event_type, content=content))
 
 
+def _run_fast_groq(sim: SimulationState, contract: RecoveryContract, run: AgentRun, step_delay: float = 0) -> AgentRun:
+    """Fast live path: preserve every tool event while limiting LLM calls to action decisions."""
+    try:
+        provider = GroqProvider(contract)
+    except Exception as exc:
+        _log(run, "error", title="Provider unavailable", message=str(exc))
+        run.status = "failed"
+        return run
+
+    step = 0
+
+    def call(name: str, arguments: dict) -> dict:
+        nonlocal step
+        step += 1
+        result = execute_tool(sim, name, arguments, contract)
+        _log(run, EVENT_TYPES.get(name, "tool"), title=name.replace("_", " ").title(), tool=name, input=arguments, output=result, step=step)
+        if step_delay:
+            time.sleep(step_delay)
+        return result
+
+    call("get_inventory", {})
+    call("get_shipment_status", {})
+    shortage_result = call("calculate_projected_shortages", {"warehouse_id": "WH-NORTH"})
+    shortages = shortage_result.get("shortages", [])
+    if not shortages:
+        verification = call("verify_recovery_contract", {})
+        run.verification = verification
+        run.status = "verified" if verification.get("passed") else "failed"
+        return run
+
+    shortage = max(shortages, key=lambda item: item["shortage_qty"])
+    sku, qty = shortage["sku"], shortage["shortage_qty"]
+    call("get_network_state", {"sku": sku})
+    call("get_vendor_options", {"sku": sku, "qty": qty})
+    comparison = call("compare_recovery_options", {"sku": sku, "qty": qty})
+
+    def stop_if_infeasible(result: dict) -> bool:
+        if result.get("recommended") is not None:
+            return False
+        verification = call("verify_recovery_contract", {})
+        run.verification = verification
+        _log(run, "infeasible", title="Recovery contract is infeasible", message="No available recovery option can satisfy all current contract limits. Adjust the contract or restore network capacity, then start a new run.")
+        run.status = "failed"
+        return True
+
+    if stop_if_infeasible(comparison):
+        return run
+
+    try:
+        action_name, action_args = provider.select_action(comparison, "initial recovery")
+    except Exception as exc:
+        _log(run, "error", title="AI decision unavailable", message=str(exc))
+        run.status = "failed"
+        return run
+    _log(run, "decision", title="AI selected recovery action", message=f"The live agent selected {action_name.replace('_', ' ')} after reviewing the optimizer output.")
+    action = call(action_name, action_args)
+    if action.get("error"):
+        run.status = "failed"
+        return run
+
+    if action_name == "transfer_inventory" and not sim.disruption_triggered:
+        sim.routes[action_args["route_id"]].status = "closed"
+        sim.disruption_triggered = True
+        _log(run, "disruption", title="Route closed mid-transfer", message=f"Simulator closed {action_args['route_id']} after dispatch and before verification.", route_id=action_args["route_id"])
+
+    effect = call("verify_action_effect", {"action_id": action["action_id"]})
+    if effect.get("passed") is False:
+        _log(run, "replan", title="Live replan required", message="The chosen action is no longer viable. Re-investigating alternatives.")
+        call("get_network_state", {"sku": sku})
+        call("get_vendor_options", {"sku": sku, "qty": qty})
+        comparison = call("compare_recovery_options", {"sku": sku, "qty": qty})
+        if stop_if_infeasible(comparison):
+            return run
+        try:
+            action_name, action_args = provider.select_action(comparison, "recovery replan after failed action")
+        except Exception as exc:
+            _log(run, "error", title="AI replan unavailable", message=str(exc))
+            run.status = "failed"
+            return run
+        _log(run, "decision", title="AI selected alternate action", message=f"The live agent selected {action_name.replace('_', ' ')} after the disruption.")
+        action = call(action_name, action_args)
+        if action.get("error"):
+            run.status = "failed"
+            return run
+        effect = call("verify_action_effect", {"action_id": action["action_id"]})
+
+    verification = call("verify_recovery_contract", {})
+    run.verification = verification
+    run.status = "verified" if effect.get("passed") and verification.get("passed") else "failed"
+    return run
+
+
 def run_agent(sim: SimulationState, contract: RecoveryContract, provider_name: str = "fake", scenario: str = "flagship", run: AgentRun | None = None, step_delay: float = 0) -> AgentRun:
     run = run or AgentRun(provider=provider_name)
     _log(run, "goal", title="Recovery Contract activated", message="Protect high-priority orders within cost, carbon, and delay limits.", contract=contract.model_dump())
@@ -128,12 +270,10 @@ def run_agent(sim: SimulationState, contract: RecoveryContract, provider_name: s
         run.verification = result
         return run
 
-    try:
-        provider: Provider = FakeProvider() if provider_name == "fake" else GroqProvider(contract)
-    except Exception as exc:
-        _log(run, "error", title="Provider unavailable", message=str(exc))
-        run.status = "failed"
-        return run
+    if provider_name == "groq":
+        return _run_fast_groq(sim, contract, run, step_delay)
+
+    provider: Provider = FakeProvider()
     history: list[dict] = []
     investigated = set()
     compared = False

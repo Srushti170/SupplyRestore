@@ -180,6 +180,28 @@ def compare_recovery_options(sim: SimulationState, args: CompareInput, contract:
     for candidate in (transfer, purchase):
         within = candidate["cost"] <= contract.max_extra_cost and candidate["carbon"] <= contract.max_extra_carbon and candidate["delay_hours"] <= contract.max_delay_hours
         candidate["feasible"] = candidate["feasible"] and within
+        reasons = []
+        if candidate["id"] == "transfer":
+            if route.status != "open":
+                reasons.append(f"Route {route.id} is closed")
+            if route.id in contract.prohibited_routes:
+                reasons.append("Route is prohibited by the contract")
+            if south_stock < args.qty:
+                reasons.append("Insufficient reserve stock")
+        else:
+            if not vendor:
+                reasons.append("No eligible vendor meets the policy")
+            if sim.routes["R-VN"].status != "open":
+                reasons.append("Vendor delivery route is closed")
+            if "R-VN" in contract.prohibited_routes:
+                reasons.append("Vendor route is prohibited by the contract")
+        if candidate["cost"] > contract.max_extra_cost:
+            reasons.append("Exceeds cost limit")
+        if candidate["carbon"] > contract.max_extra_carbon:
+            reasons.append("Exceeds carbon limit")
+        if candidate["delay_hours"] > contract.max_delay_hours:
+            reasons.append("Exceeds delay limit")
+        candidate["infeasible_reason"] = reasons[0] if reasons else None
         candidate["score"] = _score(candidate, contract)
     feasible = [c for c in (transfer, purchase) if c["feasible"]]
     winner = min(feasible, key=lambda c: c["score"]) if feasible else None
