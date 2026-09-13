@@ -28,6 +28,7 @@ const eventStyle: Record<string, { color: string; icon: typeof Activity }> = {
   goal: { color: "#73e6aa", icon: ShieldCheck }, monitor: { color: "#7db7ff", icon: Activity },
   detection: { color: "#ffb35c", icon: AlertTriangle }, investigation: { color: "#b29aff", icon: Network },
   comparison: { color: "#f2cf68", icon: Gauge }, action: { color: "#68dbe0", icon: Truck },
+  transit: { color: "#56e39a", icon: MapPin },
   decision: { color: "#b29aff", icon: Sparkles },
   disruption: { color: "#ff6b6b", icon: X }, verification: { color: "#f59eaa", icon: FileCheck2 },
   replan: { color: "#ff9f6e", icon: RotateCcw }, certificate: { color: "#54e090", icon: BadgeCheck },
@@ -58,24 +59,29 @@ export default function Home() {
   const [warehouseLoading, setWarehouseLoading] = useState(false);
   const [warehouseError, setWarehouseError] = useState("");
   const [warehouseForm, setWarehouseForm] = useState({ name: "", location: "" });
+  const [workspacePage, setWorkspacePage] = useState<"setup" | "live" | "result">("setup");
+  const [runDestination, setRunDestination] = useState<AccountWarehouse | null>(null);
   const [authForm, setAuthForm] = useState({ name: "", username: "", password: "", warehouse_name: "", warehouse_location: "" });
   const [form, setForm] = useState(defaults);
   const [run, setRun] = useState<Run | null>(null);
+  const [networkState, setNetworkState] = useState<State | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [agentMode, setAgentMode] = useState<"checking" | "live_ai" | "local_deterministic" | "offline">("checking");
-  const [resultOpen, setResultOpen] = useState(false);
-  const [dismissedRunId, setDismissedRunId] = useState<string | null>(null);
   const startingRef = useRef(false);
   const timelineRef = useRef<HTMLDivElement>(null);
   const runActive = loading || run?.status === "running";
   const text = COPY[locale];
+  const displayState = run?.state || networkState;
   const activeWarehouse = user?.warehouses?.find(warehouse => warehouse.id === activeWarehouseId) || user?.warehouses?.[0];
 
   const comparisons = useMemo(() => {
     const all = (run?.events || []).filter(event => event.type === "comparison" && Array.isArray(event.content.output?.candidates)).map(event => event.content.output as Comparison);
     return all.length > 2 ? [all[0], all[all.length - 1]] : all;
   }, [run]);
+  const latestTransit = useMemo(() => [...(run?.events || [])].reverse().find(event => event.type === "transit"), [run?.events]);
+  const latestEventType = run?.events[run.events.length - 1]?.type;
+  const timelineEta = run?.status === "verified" ? text.arrived : latestEventType === "disruption" || latestEventType === "replan" ? text.routeInterrupted : latestTransit?.content.output?.eta_minutes !== undefined ? `${text.eta} · ${latestTransit.content.output.eta_minutes} min` : null;
   const runStatusLabel = run?.status === "verified" ? text.verified : run?.status === "infeasible" ? text.infeasible : run?.status === "failed" ? text.failed : text.running;
   const finalRecovery = useMemo(() => {
     if (run?.status !== "verified") return null;
@@ -89,7 +95,7 @@ export default function Home() {
         method: text.purchase,
         supplier: vendor ? `${vendor.name} (${vendor.id})` : vendorId,
         reliability: vendor ? `${Math.round(vendor.reliability * 100)}%` : text.supplier,
-        path: `${vendor?.name || vendorId} → ${route?.id || "R-VN"} → North Fulfilment Hub`,
+        path: `${vendor?.name || vendorId} → ${route?.id || "R-VN"} → ${runDestination?.name || "North Fulfilment Hub"}`,
         why: locale === "hi" ? "ट्रांसफर मार्ग R-SN बंद होने के बाद यह अनुबंध-अनुकूल विकल्प था।" : locale === "mr" ? "हस्तांतरण मार्ग R-SN बंद झाल्यानंतर हा करार-अनुकूल पर्याय होता." : "Selected as the feasible recovery option after transfer route R-SN closed.",
       };
     }
@@ -98,10 +104,10 @@ export default function Home() {
       method: text.transfer,
       supplier: "South Reserve Hub",
       reliability: locale === "hi" ? "आंतरिक इन्वेंटरी स्रोत" : locale === "mr" ? "अंतर्गत साठा स्रोत" : "Internal inventory source",
-      path: `South Reserve Hub → ${routeId} → North Fulfilment Hub`,
+      path: `South Reserve Hub → ${routeId} → ${runDestination?.name || "North Fulfilment Hub"}`,
       why: locale === "hi" ? "सबसे कम अनुबंध-अनुकूल लागत, कार्बन और देरी स्कोर के कारण चयनित।" : locale === "mr" ? "सर्वात कमी करार-अनुकूल खर्च, कार्बन आणि विलंब गुणामुळे निवडले." : "Selected for the lowest contract-normalized cost, carbon, and delay score.",
     };
-  }, [run, locale, text.purchase, text.supplier, text.transfer]);
+  }, [run, runDestination, locale, text.purchase, text.supplier, text.transfer]);
 
   const localizedReason = (reason?: string | null) => {
     if (!reason || locale === "en") return reason || text.constraintViolation;
@@ -126,6 +132,7 @@ export default function Home() {
     if (event.type === "disruption") return text.disruptionTitle;
     if (event.type === "replan") return text.replanTitle;
     if (event.type === "infeasible") return text.infeasibleTitle;
+    if (event.type === "transit") return text.driverLocation;
     if (event.type === "decision") return event.content.title?.toLowerCase().includes("alternate") ? text.alternateTitle : text.decisionTitle;
     return event.content.title || EVENT_LABELS[locale][event.type] || event.type;
   };
@@ -136,6 +143,12 @@ export default function Home() {
     if (event.type === "replan") return text.replanMessage;
     if (event.type === "decision") return text.decisionMessage;
     if (event.type === "infeasible") return text.infeasibleBody;
+    if (event.type === "transit" && event.content.output) {
+      const progress = Number(event.content.output.progress);
+      const routeId = String(event.content.output.route_id);
+      const destination = `${event.content.output.destination_name}, ${event.content.output.destination_location}`;
+      return locale === "hi" ? `ड्राइवर ${routeId} पर ${progress}% दूरी पूरी करके ${destination} की ओर बढ़ रहा है।` : locale === "mr" ? `चालकाने ${routeId} वरील ${progress}% अंतर पूर्ण केले असून तो ${destination} कडे जात आहे.` : `Driver is ${progress}% along ${routeId} toward ${destination}.`;
+    }
     return event.content.message;
   };
 
@@ -176,6 +189,7 @@ export default function Home() {
 
   useEffect(() => {
     fetch(`${API}/health`).then(response => response.ok ? response.json() : Promise.reject()).then(data => setAgentMode(data.agent_mode)).catch(() => setAgentMode("offline"));
+    fetch(`${API}/state`).then(response => response.ok ? response.json() : Promise.reject()).then(setNetworkState).catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -193,20 +207,14 @@ export default function Home() {
   }, [run?.events.length]);
 
   useEffect(() => {
-    if (run && run.status !== "running" && dismissedRunId !== run.id) setResultOpen(true);
-  }, [run?.id, run?.status, dismissedRunId]);
-
-  useEffect(() => {
-    if (!resultOpen) return;
-    const closeOnEscape = (event: KeyboardEvent) => { if (event.key === "Escape") setResultOpen(false); };
-    window.addEventListener("keydown", closeOnEscape);
-    return () => window.removeEventListener("keydown", closeOnEscape);
-  }, [resultOpen]);
+    if (run && run.status !== "running") setWorkspacePage("result");
+  }, [run?.id, run?.status]);
 
   async function startRun() {
     if (startingRef.current || run?.status === "running") return;
     startingRef.current = true;
-    setLoading(true); setError(""); setRun(null); setResultOpen(false); setDismissedRunId(null);
+    const destination = activeWarehouse || null;
+    setLoading(true); setError(""); setRun(null); setRunDestination(destination); setWorkspacePage("live");
     try {
       const resetResponse = await fetch(`${API}/reset`, { method: "POST" });
       if (!resetResponse.ok) {
@@ -216,7 +224,7 @@ export default function Home() {
       const contractResponse = await fetch(`${API}/contracts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
       if (!contractResponse.ok) throw new Error("Could not create Recovery Contract");
       const contract = await contractResponse.json();
-      const runResponse = await fetch(`${API}/runs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract_id: contract.id }) });
+      const runResponse = await fetch(`${API}/runs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract_id: contract.id, destination_name: destination?.name || "North Fulfilment Hub", destination_location: destination?.location || "Mumbai" }) });
       const started = await runResponse.json();
       if (!runResponse.ok) throw new Error(started.detail || "Run failed to start");
       const detail = await fetch(`${API}/runs/${started.id}`);
@@ -249,7 +257,7 @@ export default function Home() {
     const token = window.localStorage.getItem("supplyrestore-session");
     if (token) await fetch(`${API}/auth/logout`, { method: "POST", headers: { Authorization: `Bearer ${token}` } }).catch(() => undefined);
     window.localStorage.removeItem("supplyrestore-session");
-    setUser(null); setActiveWarehouseId(null); setRun(null); setAuthStatus("signed_out"); setAuthMode("login");
+    setUser(null); setActiveWarehouseId(null); setRun(null); setRunDestination(null); setWorkspacePage("setup"); setAuthStatus("signed_out"); setAuthMode("login");
   }
 
   async function addWarehouse(event: React.FormEvent<HTMLFormElement>) {
@@ -309,17 +317,28 @@ export default function Home() {
       <div className="flex flex-wrap items-center justify-end gap-3 text-xs text-[#88a298]">
         <label className="flex items-center gap-2 rounded-lg border border-[#294239] bg-[#0b1813] px-2.5 py-1.5"><Languages size={14} className="text-[#62dca0]" /><select aria-label="Language" value={locale} onChange={event => setLocale(event.target.value as Locale)} className="bg-transparent text-xs font-semibold text-[#c1d4cb] outline-none"><option className="bg-white text-black" value="en">English</option><option className="bg-white text-black" value="hi">हिन्दी</option><option className="bg-white text-black" value="mr">मराठी</option></select></label>
         {user && <div className="flex items-center gap-2 rounded-lg border border-[#294239] bg-[#0b1813] px-2.5 py-1.5"><Warehouse size={14} className="shrink-0 text-[#62dca0]" />{user.warehouses?.length ? <select aria-label={text.signedInWarehouse} value={activeWarehouse?.id || ""} onChange={event => setActiveWarehouseId(Number(event.target.value))} className="max-w-[190px] bg-transparent text-xs font-semibold text-[#d5e5dd] outline-none">{user.warehouses.map(warehouse => <option className="bg-white text-black" key={warehouse.id} value={warehouse.id}>{warehouse.name} · {warehouse.location}</option>)}</select> : <div className="max-w-[190px]"><p className="truncate text-[10px] font-bold text-[#d5e5dd]">{user.warehouse_name}</p><p className="truncate text-[9px] text-[#718b7f]">{user.warehouse_location}</p></div>}</div>}
-        <button onClick={() => { setWarehouseError(""); setWarehouseOpen(true); }} className="flex items-center gap-1.5 rounded-lg border border-[#315442] bg-[#10241c] px-2.5 py-2 text-[10px] font-bold text-[#68e2a3] transition hover:border-[#54b781]"><Plus size={13} />{text.addWarehouse}</button>
         <span className="flex items-center gap-1.5"><span className={`h-2 w-2 rounded-full ${agentMode === "live_ai" ? "animate-pulse bg-[#56e39a]" : agentMode === "offline" ? "bg-red-500" : "bg-amber-400"}`} />{agentMode === "live_ai" ? text.aiConnected : agentMode === "local_deterministic" ? text.localReady : agentMode === "offline" ? text.backendOffline : text.checkingAgent}</span><span className="h-4 w-px bg-[#2a4138]" /><span className="font-mono">{text.liveOperations}</span>
         <button onClick={signOut} title={text.logout} aria-label={text.logout} className="grid h-8 w-8 place-items-center rounded-lg border border-[#294239] bg-[#0b1813] text-[#88a298] transition hover:border-red-900 hover:text-red-300"><LogOut size={14} /></button>
       </div>
     </header>
 
-    <div className="grid gap-5 xl:grid-cols-[380px_minmax(0,1fr)_340px]">
-      <div className="space-y-5">
-        <Panel className="p-5">
+    <nav className="mb-6 grid overflow-hidden rounded-2xl border border-[#203b31] bg-[#0a1712] sm:grid-cols-3" aria-label="Recovery workspace">
+      {([
+        ["setup", "01", text.setupPage, text.setupHint],
+        ["live", "02", text.livePage, text.liveHint],
+        ["result", "03", text.resultPage, text.resultHint],
+      ] as const).map(([page, number, label, hint]) => {
+        const disabled = page === "result" && (!run || run.status === "running");
+        return <button key={page} disabled={disabled} onClick={() => setWorkspacePage(page)} className={`flex items-center gap-3 border-b border-[#203b31] px-4 py-3.5 text-left transition last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0 ${workspacePage === page ? "bg-[#13291f]" : "hover:bg-[#0e1e17]"} disabled:cursor-not-allowed disabled:opacity-40`}><span className={`grid h-8 w-8 shrink-0 place-items-center rounded-full font-mono text-[10px] font-bold ${workspacePage === page ? "bg-[#56e39a] text-[#062117]" : "border border-[#315043] text-[#6f8e80]"}`}>{number}</span><span className="min-w-0"><span className={`block text-xs font-bold ${workspacePage === page ? "text-[#79e9ae]" : "text-[#b3c7bd]"}`}>{label}</span><span className="mt-0.5 hidden truncate text-[9px] text-[#647d72] lg:block">{hint}</span></span></button>;
+      })}
+    </nav>
+
+    {workspacePage !== "result" && <div className={`grid gap-5 ${workspacePage === "setup" ? "xl:grid-cols-[.9fr_1.1fr_.9fr]" : "xl:grid-cols-[.9fr_1.1fr]"}`}>
+      <div className={`space-y-5 ${workspacePage === "live" ? "xl:col-start-2 xl:row-start-1" : ""}`}>
+        {workspacePage === "setup" && <Panel className="p-5">
           <div className="mb-5 flex items-start justify-between"><div><p className="text-[11px] font-bold uppercase tracking-[.18em] text-[#5cdd99]">{text.recoveryContract}</p><h2 className="mt-1 text-lg font-semibold">{text.guardrails}</h2></div><ShieldCheck className="text-[#4ad58e]" size={22} /></div>
           <div className="space-y-4">
+            <label className="block"><span className="mb-1.5 block text-xs text-[#91a99f]">{text.destinationWarehouse}</span><select value={activeWarehouseId || ""} onChange={event => setActiveWarehouseId(Number(event.target.value))} className="w-full rounded-lg border border-[#315043] bg-[#08130f] px-3 py-2.5 text-sm font-semibold text-[#d6e5de] outline-none focus:border-[#50d895]">{(user?.warehouses || []).map(warehouse => <option className="bg-white text-black" key={warehouse.id} value={warehouse.id}>{warehouse.name} · {warehouse.location}</option>)}</select></label>
             {[
               ["min_fulfilment_pct", text.minFulfilment, "%"], ["max_extra_cost", text.maxCost, "$"],
               ["max_extra_carbon", text.maxCarbon, "kg"], ["max_delay_hours", text.maxDelay, "h"],
@@ -327,16 +346,16 @@ export default function Home() {
             <button onClick={startRun} disabled={runActive} aria-busy={runActive} className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-[#56e39a] px-4 py-3 text-sm font-bold text-[#062117] transition hover:bg-[#73ecad] disabled:cursor-not-allowed disabled:opacity-60">{runActive ? <LoaderCircle className="animate-spin" size={17} /> : <Play size={17} fill="currentColor" />}{runActive ? text.recovering : text.start}</button>
             {error && <p className="rounded-lg border border-red-900/60 bg-red-950/30 p-3 text-xs text-red-300">{error}</p>}
           </div>
-        </Panel>
-        <Panel className="overflow-hidden">
-          <div className="flex items-center justify-between border-b border-[#203b31] px-5 py-4"><div><h3 className="text-sm font-semibold">{text.liveNetwork}</h3><p className="mt-0.5 max-w-[280px] truncate text-[10px] text-[#698277]">{activeWarehouse?.name} · {activeWarehouse?.location}</p></div><Network size={16} className="text-[#6a8b7d]" /></div>
-          <LiveNetworkMap warehouses={user?.warehouses || []} activeWarehouseId={activeWarehouseId} events={run?.events || []} runStatus={run?.status} labels={{ active: text.mapActive, warehouse: text.mapWarehouse, supplier: text.mapSupplier, available: text.availableRoute, selected: text.selectedPath, closed: text.closed, verified: text.mapVerified, simulated: text.simulationNote }} />
-        </Panel>
+        </Panel>}
+        {workspacePage === "live" && <Panel className="overflow-hidden">
+          <div className="flex items-center justify-between border-b border-[#203b31] px-5 py-4"><div><h3 className="text-sm font-semibold">{text.liveNetwork}</h3><p className="mt-0.5 max-w-[280px] truncate text-[10px] text-[#698277]">{runDestination?.name || activeWarehouse?.name} · {runDestination?.location || activeWarehouse?.location}</p></div><Network size={16} className="text-[#6a8b7d]" /></div>
+          <LiveNetworkMap warehouses={user?.warehouses || []} activeWarehouseId={runDestination?.id || activeWarehouseId} events={run?.events || []} runStatus={run?.status} labels={{ active: text.mapActive, warehouse: text.mapWarehouse, supplier: text.mapSupplier, available: text.availableRoute, selected: text.selectedPath, closed: text.closed, verified: text.mapVerified, simulated: text.simulationNote }} />
+        </Panel>}
       </div>
 
-      <div className="min-w-0 space-y-5">
-        <Panel className="overflow-hidden">
-          <div className="flex items-center justify-between border-b border-[#203b31] px-5 py-4"><div><p className="text-[10px] font-bold uppercase tracking-widest text-[#68897b]">{text.autonomousExecution}</p><h2 className="mt-0.5 font-semibold">{text.timeline}</h2></div>{run && <span className={`rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider ${run.status === "verified" ? "bg-emerald-900/40 text-emerald-300" : run.status === "infeasible" ? "bg-amber-900/40 text-amber-300" : run.status === "failed" ? "bg-red-900/40 text-red-300" : "bg-blue-900/40 text-blue-300"}`}>{runStatusLabel}</span>}</div>
+      <div className={`min-w-0 space-y-5 ${workspacePage === "live" ? "xl:contents" : ""}`}>
+        {workspacePage === "live" && <Panel className="overflow-hidden xl:col-start-1 xl:row-span-2 xl:row-start-1">
+          <div className="flex items-center justify-between gap-3 border-b border-[#203b31] px-5 py-4"><div><p className="text-[10px] font-bold uppercase tracking-widest text-[#68897b]">{text.autonomousExecution}</p><h2 className="mt-0.5 font-semibold">{text.timeline}</h2></div><div className="flex items-center gap-2">{timelineEta && <span className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-bold ${run?.status === "verified" ? "border-emerald-800 bg-emerald-950/60 text-emerald-300" : latestEventType === "disruption" || latestEventType === "replan" ? "border-red-900 bg-red-950/50 text-red-300" : "border-[#315442] bg-[#10271d] text-[#70e6aa]"}`}><Timer size={11} />{timelineEta}</span>}{run && <span className={`rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider ${run.status === "verified" ? "bg-emerald-900/40 text-emerald-300" : run.status === "infeasible" ? "bg-amber-900/40 text-amber-300" : run.status === "failed" ? "bg-red-900/40 text-red-300" : "bg-blue-900/40 text-blue-300"}`}>{runStatusLabel}</span>}</div></div>
           <div ref={timelineRef} className="max-h-[620px] min-h-[420px] overflow-y-auto p-5">
             {!run ? <div className="grid min-h-[380px] place-items-center text-center"><div><div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full border border-[#29493c] bg-[#10241c]"><Sparkles className="text-[#56e39a]" size={24} /></div><h3 className="font-semibold">{text.readyTitle}</h3><p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-[#70897e]">{text.readyBody}</p></div></div> :
               <div>{run.events.map((event, index) => {
@@ -344,9 +363,9 @@ export default function Home() {
                 return <div key={`${event.timestamp}-${index}`} className="relative flex gap-4 pb-5 last:pb-0">{index < run.events.length - 1 && <div className="absolute left-[15px] top-8 h-[calc(100%-20px)] w-px bg-[#284137]" />}<div className="relative z-10 grid h-8 w-8 shrink-0 place-items-center rounded-full border bg-[#0b1813]" style={{ borderColor: `${style.color}66`, color: style.color }}><Icon size={15} /></div><div className="min-w-0 flex-1 rounded-xl border border-[#1c352b] bg-[#09140f] p-3.5"><div className="flex items-start justify-between gap-3"><div><span className="text-[10px] font-bold uppercase tracking-[.14em]" style={{ color: style.color }}>{EVENT_LABELS[locale][event.type] || event.type}</span><h4 className="mt-0.5 text-sm font-semibold">{localizedEventTitle(event)}</h4></div><time className="whitespace-nowrap font-mono text-[10px] text-[#587166]">{new Date(event.timestamp).toLocaleTimeString(locale === "hi" ? "hi-IN" : locale === "mr" ? "mr-IN" : "en-IN", { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time></div>{localizedEventMessage(event) && <p className="mt-2 text-xs leading-5 text-[#8ca399]">{localizedEventMessage(event)}</p>}{event.type === "verification" && event.content.output && <div className={`mt-2 flex items-center gap-2 rounded-lg px-3 py-2 text-xs ${event.content.output.passed ? "bg-emerald-950/50 text-emerald-300" : "bg-red-950/45 text-red-300"}`}>{event.content.output.passed ? <Check size={14} /> : <X size={14} />}{localizedCheckDetail(String(event.content.output.detail))}</div>}</div></div>;
               })}{run.status === "running" && <div className="ml-12 flex items-center gap-2.5 rounded-xl border border-[#274338] bg-[#0c1b15] px-3.5 py-3 text-xs text-[#8da79b]"><LoaderCircle className="animate-spin text-[#56e39a]" size={15} /><span>{text.processing}</span></div>}</div>}
           </div>
-        </Panel>
+        </Panel>}
 
-        {comparisons.length > 0 && <Panel className="p-5">
+        {workspacePage === "live" && comparisons.length > 0 && <Panel className="p-5 xl:col-start-2 xl:row-start-2">
           <div className="mb-5 flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-widest text-[#f2cf68]">{text.optimizer}</p><h3 className="mt-1 font-semibold">{text.evolution}</h3><p className="mt-1 text-xs text-[#6f887d]">{text.evolutionBody}</p></div><Gauge className="text-[#f2cf68]" size={20} /></div>
           <div className={`grid gap-3 ${comparisons.length > 1 ? "lg:grid-cols-2" : ""}`}>
             {comparisons.map((comparison, stageIndex) => <div key={stageIndex} className="overflow-hidden rounded-xl border border-[#263f35] bg-[#09140f]">
@@ -362,14 +381,15 @@ export default function Home() {
             </div>)}
           </div>
         </Panel>}
+        {workspacePage === "live" && comparisons.length === 0 && <Panel className="grid min-h-[180px] place-items-center p-5 text-center xl:col-start-2 xl:row-start-2"><div><Gauge className="mx-auto text-[#827342]" size={22} /><p className="mt-3 text-[10px] font-bold uppercase tracking-[.16em] text-[#a38d48]">{text.optimizer}</p><h3 className="mt-1 text-sm font-semibold">{text.evolution}</h3><p className="mt-1 text-xs text-[#61796e]">{text.processing}</p></div></Panel>}
+        {workspacePage === "setup" && <>
+          <Panel className="p-5"><div className="mb-4 flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-[.15em] text-[#668579]">{text.setupPage}</p><h3 className="mt-1 text-sm font-semibold">{text.operationalState}</h3></div><Warehouse size={17} className="text-[#789287]" /></div><div className="grid grid-cols-2 gap-2"><Metric icon={Boxes} label={text.northStock} value={displayState?.warehouses.find(w => w.id === "WH-NORTH")?.inventory["SKU-100"] ?? "—"} unit={text.units} /><Metric icon={Truck} label={text.southStock} value={displayState?.warehouses.find(w => w.id === "WH-SOUTH")?.inventory["SKU-100"] ?? "—"} unit={text.units} /><Metric icon={CircleDollarSign} label={text.extraCost} value={displayState ? `$${displayState.metrics.extra_cost}` : "—"} /><Metric icon={Cloud} label={text.carbon} value={displayState?.metrics.extra_carbon ?? "—"} unit="kg" /></div></Panel>
+          <Panel className="overflow-hidden"><div className="border-b border-[#203b31] px-5 py-4"><h3 className="text-sm font-semibold">{text.supplyPartners}</h3></div><div className="grid gap-2 p-3 sm:grid-cols-2">{(displayState?.vendors || []).map(v => <div key={v.id} className="rounded-xl border border-[#1d332a] bg-[#091510] p-3"><div className="flex items-center justify-between"><span className="text-xs font-semibold">{v.name}</span><span className="font-mono text-xs text-[#5bdfa0]">{Math.round(v.reliability * 100)}%</span></div><div className="mt-2 flex justify-between text-[10px] text-[#6e887c]"><span>${v.unit_cost}/{text.units}</span><span>{v.lead_time_hours}h {locale === "hi" ? "लीड टाइम" : locale === "mr" ? "वितरण वेळ" : "lead time"}</span></div></div>)}{!displayState && <p className="col-span-full py-8 text-center text-xs text-[#627b70]">{text.awaitingScan}</p>}</div></Panel>
+        </>}
       </div>
 
-      <div className="space-y-5">
-        <Panel className="p-5"><div className="mb-4 flex items-center justify-between"><h3 className="text-sm font-semibold">{text.operationalState}</h3><Warehouse size={17} className="text-[#789287]" /></div><div className="grid grid-cols-2 gap-2"><Metric icon={Boxes} label={text.northStock} value={run?.state.warehouses.find(w => w.id === "WH-NORTH")?.inventory["SKU-100"] ?? "—"} unit={text.units} /><Metric icon={Truck} label={text.southStock} value={run?.state.warehouses.find(w => w.id === "WH-SOUTH")?.inventory["SKU-100"] ?? "—"} unit={text.units} /><Metric icon={CircleDollarSign} label={text.extraCost} value={run ? `$${run.state.metrics.extra_cost}` : "—"} /><Metric icon={Cloud} label={text.carbon} value={run?.state.metrics.extra_carbon ?? "—"} unit="kg" /></div></Panel>
-        <Panel className="overflow-hidden"><div className="border-b border-[#203b31] px-5 py-4"><h3 className="text-sm font-semibold">{text.supplyPartners}</h3></div><div className="space-y-2 p-3">{(run?.state.vendors || []).map(v => <div key={v.id} className="rounded-xl bg-[#091510] p-3"><div className="flex items-center justify-between"><span className="text-xs font-semibold">{v.name}</span><span className="font-mono text-xs text-[#5bdfa0]">{Math.round(v.reliability * 100)}%</span></div><div className="mt-2 flex justify-between text-[10px] text-[#6e887c]"><span>${v.unit_cost}/{text.units}</span><span>{v.lead_time_hours}h {locale === "hi" ? "लीड टाइम" : locale === "mr" ? "वितरण वेळ" : "lead time"}</span></div></div>)}{!run && <p className="py-5 text-center text-xs text-[#627b70]">{text.awaitingScan}</p>}</div></Panel>
-        {run && run.status !== "running" && <button onClick={() => setResultOpen(true)} className={`flex w-full items-center justify-between rounded-xl border px-4 py-3 text-left transition hover:-translate-y-0.5 ${run.status === "verified" ? "border-[#347855] bg-[#10271d] text-[#71e9ab]" : run.status === "infeasible" ? "border-[#76572b] bg-amber-950/25 text-amber-200" : "border-red-900/60 bg-red-950/25 text-red-300"}`}><span><span className="block text-[9px] font-bold uppercase tracking-[.15em] opacity-70">{text.recoveryResult}</span><span className="mt-0.5 block text-xs font-semibold">{text.viewCertificate}</span></span><FileCheck2 size={19} /></button>}
-      </div>
-    </div>
+      {workspacePage === "setup" && <div className="space-y-5"><Panel className="overflow-hidden"><div className="flex items-center justify-between border-b border-[#203b31] px-5 py-4"><div><p className="text-[10px] font-bold uppercase tracking-[.15em] text-[#668579]">{user?.warehouses.length || 0}</p><h3 className="mt-1 text-sm font-semibold">{text.yourWarehouses}</h3></div><button onClick={() => { setWarehouseError(""); setWarehouseOpen(true); }} className="flex items-center gap-1.5 rounded-lg bg-[#56e39a] px-2.5 py-2 text-[10px] font-bold text-[#062117]"><Plus size={13} />{text.addWarehouse}</button></div><div className="space-y-2 p-3">{(user?.warehouses || []).map(warehouse => <button key={warehouse.id} onClick={() => setActiveWarehouseId(warehouse.id)} className={`flex w-full items-center gap-3 rounded-xl border p-3 text-left transition ${warehouse.id === activeWarehouseId ? "border-[#3e8e63] bg-[#10271d]" : "border-[#20372e] bg-[#09140f] hover:border-[#365547]"}`}><span className={`grid h-9 w-9 shrink-0 place-items-center rounded-lg ${warehouse.id === activeWarehouseId ? "bg-[#56e39a] text-[#062117]" : "bg-[#15271f] text-[#739184]"}`}><Warehouse size={17} /></span><span className="min-w-0 flex-1"><span className="block truncate text-xs font-semibold">{warehouse.name}</span><span className="mt-1 flex items-center gap-1 truncate text-[10px] text-[#6f897d]"><MapPin size={10} />{warehouse.location}</span></span>{warehouse.id === activeWarehouseId && <Check size={15} className="text-[#61e19f]" />}</button>)}</div></Panel></div>}
+    </div>}
 
     {warehouseOpen && <div className="fixed inset-0 z-[2000] grid place-items-center bg-black/75 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="add-warehouse-title">
       <div className="relative w-full max-w-md rounded-2xl border border-[#315442] bg-[#0b1813] p-6 shadow-[0_28px_100px_rgba(0,0,0,.65)]">
@@ -385,9 +405,8 @@ export default function Home() {
       </div>
     </div>}
 
-    {run && resultOpen && run.status !== "running" && <div className="fixed inset-0 z-[2000] grid place-items-center bg-black/75 p-4 backdrop-blur-sm" role="dialog" aria-modal="true" aria-labelledby="recovery-result-title">
-      <div className={`relative max-h-[90vh] w-full max-w-2xl overflow-y-auto rounded-2xl border bg-[#0b1813] shadow-[0_28px_100px_rgba(0,0,0,.65)] ${run.status === "verified" ? "border-[#3a8f61]" : run.status === "infeasible" ? "border-[#83602e]" : "border-red-900"}`}>
-        <button onClick={() => { setResultOpen(false); setDismissedRunId(run.id); }} aria-label={text.closeResult} className="absolute right-4 top-4 z-10 grid h-9 w-9 place-items-center rounded-full border border-[#30473e] bg-[#101f19] text-[#91a99f] transition hover:border-[#547264] hover:text-white"><X size={17} /></button>
+    {workspacePage === "result" && run && run.status !== "running" && <section className="mx-auto w-full max-w-4xl pb-8">
+      <div className={`relative w-full overflow-hidden rounded-2xl border bg-[#0b1813] shadow-[0_22px_80px_rgba(0,0,0,.35)] ${run.status === "verified" ? "border-[#3a8f61]" : run.status === "infeasible" ? "border-[#83602e]" : "border-red-900"}`}>
         <div className={`px-6 pb-5 pt-7 text-center ${run.status === "verified" ? "bg-[radial-gradient(circle_at_top,rgba(60,207,134,.16),transparent_70%)]" : run.status === "infeasible" ? "bg-[radial-gradient(circle_at_top,rgba(245,158,11,.14),transparent_70%)]" : "bg-[radial-gradient(circle_at_top,rgba(239,68,68,.12),transparent_70%)]"}`}>
           <div className={`mx-auto mb-3 grid h-14 w-14 place-items-center rounded-full ${run.status === "verified" ? "bg-[#56e39a] text-[#062117] shadow-[0_0_35px_rgba(86,227,154,.24)]" : run.status === "infeasible" ? "bg-amber-900/70 text-amber-300" : "bg-red-950 text-red-300"}`}>{run.status === "verified" ? <BadgeCheck size={29} /> : run.status === "infeasible" ? <AlertTriangle size={27} /> : <X size={27} />}</div>
           <p className="text-[10px] font-bold uppercase tracking-[.2em] text-[#799287]">{text.certificate}</p>
@@ -405,6 +424,6 @@ export default function Home() {
         <div className="p-5"><p className="mb-3 text-[9px] font-bold uppercase tracking-[.16em] text-[#708a7f]">{text.contractChecks}</p>{run.verification?.checks ? <div className="grid gap-2 sm:grid-cols-2">{run.verification.checks.map(check => <div key={check.name} className="flex gap-2.5 rounded-lg border border-[#20372e] bg-[#09140f] p-3"><div className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full ${check.passed ? "bg-emerald-900 text-emerald-300" : "bg-red-900 text-red-300"}`}>{check.passed ? <Check size={12} /> : <X size={12} />}</div><div><p className="text-xs font-medium">{CHECK_LABELS[locale][check.name] || check.name}</p><p className="mt-0.5 text-[10px] leading-4 text-[#71897f]">{localizedCheckDetail(check.detail)}</p></div></div>)}</div> : <p className="rounded-lg bg-red-950/25 p-3 text-xs text-red-300">{text.noEvidence}</p>}</div>
         <div className={`flex items-center justify-between border-t px-5 py-3 text-[10px] font-bold uppercase tracking-[.14em] ${run.status === "verified" ? "border-[#28503e] bg-[#10271d] text-[#6be6a6]" : run.status === "infeasible" ? "border-[#5c4529] bg-amber-950/25 text-amber-200" : "border-red-900/50 bg-red-950/20 text-red-300"}`}><span>{run.status === "verified" ? text.evidenceComplete : run.status === "infeasible" ? text.analysisComplete : text.actionRequired}</span>{run.status === "verified" ? <BadgeCheck size={17} /> : <AlertTriangle size={16} />}</div>
       </div>
-    </div>}
+    </section>}
   </main>;
 }

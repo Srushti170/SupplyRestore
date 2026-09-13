@@ -27,6 +27,8 @@ class RunRequest(BaseModel):
     contract_id: str
     provider: str = "auto"
     scenario: str = "flagship"
+    destination_name: str = "North Fulfilment Hub"
+    destination_location: str = "Mumbai"
 
 
 @app.post("/auth/signup")
@@ -66,6 +68,11 @@ def health() -> dict:
     }
 
 
+@app.get("/state")
+def get_operational_state() -> dict:
+    return state.snapshot()
+
+
 @app.post("/reset")
 def reset() -> dict:
     if any(run.status == "running" for run in state.runs.values()):
@@ -96,7 +103,11 @@ def create_run(request: RunRequest) -> dict:
     state.runs[run.id] = run
     def worker() -> None:
         try:
-            run_agent(state, contract, provider, request.scenario, run=run, step_delay=2.0)
+            run_agent(
+                state, contract, provider, request.scenario, run=run, step_delay=2.0,
+                destination_name=request.destination_name,
+                destination_location=request.destination_location,
+            )
         except Exception as exc:
             run.status = "failed"
             run.events.append(AgentEvent(type="error", content={"title": "Run failed", "message": str(exc)}))

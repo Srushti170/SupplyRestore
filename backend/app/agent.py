@@ -166,7 +166,7 @@ def _log(run: AgentRun, event_type: str, **content) -> None:
     run.events.append(AgentEvent(type=event_type, content=content))
 
 
-def _run_fast_groq(sim: SimulationState, contract: RecoveryContract, run: AgentRun, step_delay: float = 0) -> AgentRun:
+def _run_fast_groq(sim: SimulationState, contract: RecoveryContract, run: AgentRun, step_delay: float = 0, destination_name: str = "North Fulfilment Hub", destination_location: str = "Mumbai") -> AgentRun:
     """Fast live path: preserve every tool event while limiting LLM calls to action decisions."""
     try:
         provider = GroqProvider(contract)
@@ -188,6 +188,15 @@ def _run_fast_groq(sim: SimulationState, contract: RecoveryContract, run: AgentR
         _log(run, EVENT_TYPES.get(name, "tool"), title=name.replace("_", " ").title(), tool=name, input=arguments, output=result, step=step)
         pause()
         return result
+
+    def transit(route_id: str, checkpoints: list[tuple[int, int]]) -> None:
+        for progress, eta_minutes in checkpoints:
+            _log(
+                run, "transit", title="Driver location updated",
+                message=f"Driver is {progress}% along {route_id} toward {destination_name}, {destination_location}.",
+                output={"route_id": route_id, "progress": progress, "eta_minutes": eta_minutes, "destination_name": destination_name, "destination_location": destination_location},
+            )
+            pause()
 
     pause()
     call("get_inventory", {})
@@ -231,6 +240,11 @@ def _run_fast_groq(sim: SimulationState, contract: RecoveryContract, run: AgentR
         run.status = "failed"
         return run
 
+    if action_name == "transfer_inventory":
+        transit(action_args["route_id"], [(18, 100), (42, 65)])
+    else:
+        transit("R-VN", [(20, 190), (55, 105), (85, 35), (100, 0)])
+
     if action_name == "transfer_inventory" and not sim.disruption_triggered:
         sim.routes[action_args["route_id"]].status = "closed"
         sim.disruption_triggered = True
@@ -258,6 +272,10 @@ def _run_fast_groq(sim: SimulationState, contract: RecoveryContract, run: AgentR
         if action.get("error"):
             run.status = "failed"
             return run
+        if action_name == "transfer_inventory":
+            transit(action_args["route_id"], [(20, 95), (60, 45), (100, 0)])
+        else:
+            transit("R-VN", [(20, 190), (55, 105), (85, 35), (100, 0)])
         effect = call("verify_action_effect", {"action_id": action["action_id"]})
 
     verification = call("verify_recovery_contract", {})
@@ -266,7 +284,7 @@ def _run_fast_groq(sim: SimulationState, contract: RecoveryContract, run: AgentR
     return run
 
 
-def run_agent(sim: SimulationState, contract: RecoveryContract, provider_name: str = "fake", scenario: str = "flagship", run: AgentRun | None = None, step_delay: float = 0) -> AgentRun:
+def run_agent(sim: SimulationState, contract: RecoveryContract, provider_name: str = "fake", scenario: str = "flagship", run: AgentRun | None = None, step_delay: float = 0, destination_name: str = "North Fulfilment Hub", destination_location: str = "Mumbai") -> AgentRun:
     run = run or AgentRun(provider=provider_name)
     _log(run, "goal", title="Recovery Contract activated", message="Protect high-priority orders within cost, carbon, and delay limits.", contract=contract.model_dump())
     if scenario == "baseline":
@@ -280,7 +298,7 @@ def run_agent(sim: SimulationState, contract: RecoveryContract, provider_name: s
         return run
 
     if provider_name == "groq":
-        return _run_fast_groq(sim, contract, run, step_delay)
+        return _run_fast_groq(sim, contract, run, step_delay, destination_name, destination_location)
 
     provider: Provider = FakeProvider()
     history: list[dict] = []
@@ -336,6 +354,18 @@ def run_agent(sim: SimulationState, contract: RecoveryContract, provider_name: s
         _log(run, EVENT_TYPES.get(name, "tool"), title=title, tool=name, input=arguments, output=result, step=step + 1)
         if step_delay:
             time.sleep(random.uniform(step_delay, step_delay + 1))
+
+        if name in {"transfer_inventory", "create_purchase_order"} and result.get("action_id"):
+            route_id = arguments.get("route_id", "R-VN")
+            checkpoints = [(18, 100), (42, 65)] if name == "transfer_inventory" else [(20, 190), (55, 105), (85, 35), (100, 0)]
+            for progress, eta_minutes in checkpoints:
+                _log(
+                    run, "transit", title="Driver location updated",
+                    message=f"Driver is {progress}% along {route_id} toward {destination_name}, {destination_location}.",
+                    output={"route_id": route_id, "progress": progress, "eta_minutes": eta_minutes, "destination_name": destination_name, "destination_location": destination_location},
+                )
+                if step_delay:
+                    time.sleep(random.uniform(step_delay, step_delay + 1))
 
         if name == "compare_recovery_options" and not result.get("error") and result.get("recommended") is None:
             verification = execute_tool(sim, "verify_recovery_contract", {}, contract)

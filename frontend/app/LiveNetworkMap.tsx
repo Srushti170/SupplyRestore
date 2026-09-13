@@ -5,7 +5,7 @@ import { CircleMarker, MapContainer, Marker, Polyline, Popup, TileLayer, Tooltip
 import { divIcon, latLngBounds, type LatLngExpression } from "leaflet";
 
 type WarehousePoint = { id: number; name: string; location: string };
-type AgentEvent = { type: string; content: { tool?: string } };
+type AgentEvent = { type: string; content: { tool?: string; output?: Record<string, unknown> } };
 
 type Props = {
   warehouses: WarehousePoint[];
@@ -74,9 +74,12 @@ export default function LiveNetworkMap({ warehouses, activeWarehouseId, events, 
   const routeClosed = events.some(event => event.type === "disruption");
   const purchaseStarted = events.some(event => event.content.tool === "create_purchase_order");
   const verified = runStatus === "verified";
+  const selectedRoute = purchaseStarted ? "R-VN" : "R-SN";
   const activeLine = purchaseStarted ? [rapidSupplier, targetCoords] : [reserveCoords, targetCoords];
-  const moving = runStatus === "running" && (transferStarted || purchaseStarted) && !(routeClosed && !purchaseStarted);
-  const midpoint: [number, number] = [(activeLine[0][0] + activeLine[1][0]) / 2, (activeLine[0][1] + activeLine[1][1]) / 2];
+  const latestTransit = [...events].reverse().find(event => event.type === "transit" && event.content.output?.route_id === selectedRoute);
+  const progress = latestTransit ? Math.max(0, Math.min(100, Number(latestTransit.content.output?.progress || 0))) : 0;
+  const moving = runStatus === "running" && (transferStarted || purchaseStarted);
+  const truckPosition: [number, number] = [activeLine[0][0] + (activeLine[1][0] - activeLine[0][0]) * progress / 100, activeLine[0][1] + (activeLine[1][1] - activeLine[0][1]) * progress / 100];
   const allPoints = useMemo<LatLngExpression[]>(() => [...warehousePoints.map(item => item.coords), reserveCoords, rapidSupplier, budgetSupplier], [warehousePoints, reserveCoords, rapidSupplier, budgetSupplier]);
 
   return <div className="relative h-[330px] overflow-hidden bg-[#07110e]">
@@ -95,7 +98,7 @@ export default function LiveNetworkMap({ warehouses, activeWarehouseId, events, 
       <CircleMarker center={reserveCoords} radius={7} pathOptions={{ color: "#b8d3ff", fillColor: "#3b82f6", fillOpacity: 1, weight: 2 }}><Tooltip direction="top">South Reserve Hub · {reserveCity}</Tooltip></CircleMarker>
       <CircleMarker center={rapidSupplier} radius={7} pathOptions={{ color: "#e9d5ff", fillColor: "#a855f7", fillOpacity: 1, weight: 2 }}><Tooltip direction="top">RapidSupply · {rapidCity}<br />{labels.supplier}</Tooltip></CircleMarker>
       <CircleMarker center={budgetSupplier} radius={6} pathOptions={{ color: "#e9d5ff", fillColor: "#7e22ce", fillOpacity: .9, weight: 2 }}><Tooltip direction="top">ValueSource · {budgetCity}<br />{labels.supplier}</Tooltip></CircleMarker>
-      {moving && <Marker position={midpoint} icon={truckIcon}><Tooltip permanent direction="top" offset={[0, -13]}>{labels.selected}</Tooltip></Marker>}
+      {moving && <Marker position={truckPosition} icon={truckIcon}><Popup>{labels.selected}<br />{progress}%</Popup></Marker>}
       {verified && <Marker position={targetCoords} icon={checkIcon}><Tooltip direction="right">{labels.verified}</Tooltip></Marker>}
     </MapContainer>
     <div className="pointer-events-none absolute left-3 top-3 z-[500] rounded-lg border border-[#315144] bg-[#07120ee8] px-3 py-2 text-[9px] font-semibold text-[#a7bcb2] shadow-lg"><span className="mr-2 inline-block h-2 w-5 rounded bg-[#43e49a]" />{labels.selected}<span className="mx-2 text-[#365146]">|</span><span className="mr-2 inline-block w-5 border-t-2 border-dashed border-red-400" />{labels.closed}</div>
