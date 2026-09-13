@@ -12,7 +12,7 @@ from .tools import execute_tool, groq_tool_definitions
 
 
 SYSTEM_PROMPT = """You are SupplyRestore, a verification-first supply-chain recovery agent.
-Restore high-priority fulfilment while obeying the Recovery Contract. Monitor inventory and shipments, calculate shortages, and investigate BOTH network/warehouse alternatives and vendor options before acting. Compare recovery options deterministically before every action. After any action, verify its physical effect. If verification fails, re-investigate and replan. You may only finish after verify_recovery_contract returns passed=true. Never claim success from an action response alone."""
+Restore high-priority fulfilment while obeying the Recovery Contract. Monitor inventory and shipments, calculate shortages, and investigate BOTH network/warehouse alternatives and vendor options before acting. Compare recovery options deterministically before every action. A purchase candidate can include an RL supplier-intelligence recommendation derived from prior simulated deliveries; use it as evidence, but never override the deterministic contract-safe recommendation. After any action, verify its physical effect. If verification fails, re-investigate and replan. You may only finish after verify_recovery_contract returns passed=true. Never claim success from an action response alone."""
 
 
 class Provider(Protocol):
@@ -175,6 +175,15 @@ def _log(run: AgentRun, event_type: str, **content) -> None:
     run.events.append(AgentEvent(type=event_type, content=content))
 
 
+def _log_learning_update(run: AgentRun, result: dict) -> None:
+    update = result.get("learning_update")
+    if update:
+        _log(run, "learning", title="Supplier learning updated", message=(
+            f"{update['vendor_name']} received reward {update['reward']:+.2f}. "
+            f"On-time: {'yes' if update['on_time'] else 'no'}; actual delivery: {update['actual_delivery_hours']}h."
+        ), output=update)
+
+
 def _run_fast_groq(sim: SimulationState, contract: RecoveryContract, run: AgentRun, step_delay: float = 0, destination_name: str = "North Fulfilment Hub", destination_location: str = "Mumbai") -> AgentRun:
     """Fast live path: preserve every tool event while limiting LLM calls to action decisions."""
     try:
@@ -261,6 +270,9 @@ def _run_fast_groq(sim: SimulationState, contract: RecoveryContract, run: AgentR
         pause()
 
     effect = call("verify_action_effect", {"action_id": action["action_id"]})
+    _log_learning_update(run, effect)
+    if effect.get("learning_update"):
+        pause()
     if effect.get("passed") is False:
         _log(run, "replan", title="Live replan required", message="The chosen action is no longer viable. Re-investigating alternatives.")
         pause()
@@ -286,6 +298,9 @@ def _run_fast_groq(sim: SimulationState, contract: RecoveryContract, run: AgentR
         else:
             transit("R-VN", [(20, 190), (55, 105), (85, 35), (100, 0)])
         effect = call("verify_action_effect", {"action_id": action["action_id"]})
+        _log_learning_update(run, effect)
+        if effect.get("learning_update"):
+            pause()
 
     verification = call("verify_recovery_contract", {})
     run.verification = verification
@@ -364,6 +379,8 @@ def run_agent(sim: SimulationState, contract: RecoveryContract, provider_name: s
         history.append({"call_id": call_id, "tool": name, "arguments": arguments, "result": result})
         title = name.replace("_", " ").title()
         _log(run, EVENT_TYPES.get(name, "tool"), title=title, tool=name, input=arguments, output=result, step=step + 1)
+        if name == "verify_action_effect":
+            _log_learning_update(run, result)
         if step_delay:
             time.sleep(random.uniform(step_delay, step_delay + 1))
 

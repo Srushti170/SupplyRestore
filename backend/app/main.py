@@ -10,7 +10,7 @@ from pydantic import BaseModel, Field
 from .agent import run_agent
 from .auth import (
     LoginRequest, SignupRequest, WarehouseInventoryRequest, WarehouseRequest,
-    add_warehouse, apply_verified_inventory, current_user, get_recovery_history,
+    add_warehouse, apply_verified_inventory, current_user, delete_warehouse, get_recovery_history,
     login, logout, save_recovery_history, signup, update_warehouse_inventory,
 )
 from .models import AgentEvent, AgentRun, RecoveryContract
@@ -73,6 +73,12 @@ def create_warehouse(request: WarehouseRequest, authorization: str | None = Head
 def change_warehouse_inventory(warehouse_id: int, request: WarehouseInventoryRequest, authorization: str | None = Header(default=None)) -> dict:
     user = current_user(authorization)
     return update_warehouse_inventory(user["id"], warehouse_id, request.inventory)
+
+
+@app.delete("/warehouses/{warehouse_id}")
+def remove_warehouse(warehouse_id: int, authorization: str | None = Header(default=None)) -> dict:
+    user = current_user(authorization)
+    return delete_warehouse(user["id"], warehouse_id)
 
 
 @app.get("/history")

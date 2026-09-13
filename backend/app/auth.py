@@ -236,6 +236,18 @@ def update_warehouse_inventory(user_id: int, warehouse_id: int, inventory: int) 
     return _public_user(row)
 
 
+def delete_warehouse(user_id: int, warehouse_id: int) -> dict:
+    with _connect() as connection:
+        count = connection.execute("SELECT COUNT(*) FROM warehouses WHERE user_id = ?", (user_id,)).fetchone()[0]
+        if count <= 1:
+            raise HTTPException(status_code=400, detail="At least one warehouse is required for a recovery workspace")
+        deleted = connection.execute("DELETE FROM warehouses WHERE id = ? AND user_id = ?", (warehouse_id, user_id))
+        if deleted.rowcount != 1:
+            raise HTTPException(status_code=404, detail="Warehouse not found")
+        row = connection.execute("SELECT * FROM users WHERE id = ?", (user_id,)).fetchone()
+    return _public_user(row)
+
+
 def apply_verified_inventory(
     user_id: int,
     destination_id: int,

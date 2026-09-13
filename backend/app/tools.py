@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 from .models import RecoveryContract, VerificationCheck, VerificationResult
 from .simulation.state import SimulationState
+from .supplier_learning import rank_suppliers, simulated_delivery_outcome, update_learning
 
 
 class ErrorOutput(BaseModel):
@@ -123,7 +124,10 @@ def get_vendor_options(sim: SimulationState, args: VendorOptionsInput, contract:
     options = []
     for vendor in sim.vendors.values():
         blocked = vendor.blocked or vendor.id in contract.blocked_vendors
-        options.append({**vendor.model_dump(), "qty": args.qty, "total_cost": vendor.unit_cost * args.qty, "eligible": not blocked})
+        learning = sim.supplier_learning.get(vendor.id, {})
+        deliveries = max(int(learning.get("deliveries", 0)), 1)
+        options.append({**vendor.model_dump(), "qty": args.qty, "total_cost": vendor.unit_cost * args.qty, "eligible": not blocked,
+                        "learning": {**learning, "on_time_rate": round(100 * int(learning.get("on_time", 0)) / deliveries, 1)}})
     return VendorOptionsOutput(options=options).model_dump()
 
 
@@ -167,13 +171,14 @@ def compare_recovery_options(sim: SimulationState, args: CompareInput, contract:
         "delay_hours": route.lead_time_hours, "fulfilment_pct": 100.0,
         "feasible": route.status == "open" and route.id not in contract.prohibited_routes and south_stock >= args.qty,
     }
-    eligible = [v for v in sim.vendors.values() if not v.blocked and v.id not in contract.blocked_vendors and v.lead_time_hours <= contract.max_delay_hours]
-    vendor = min(eligible, key=lambda v: v.lead_time_hours) if eligible else None
+    eligible = [v for v in sim.vendors.values() if not v.blocked and v.id not in contract.blocked_vendors and v.lead_time_hours <= contract.max_delay_hours and (v.unit_cost + sim.routes["R-VN"].cost_per_unit) * args.qty <= contract.max_extra_cost and sim.routes["R-VN"].carbon_per_unit * args.qty <= contract.max_extra_carbon]
+    vendor, rl_recommendation = rank_suppliers(sim, eligible, args.qty, contract.max_delay_hours)
     purchase = {
         "id": "purchase", "type": "purchase", "label": "Emergency purchase order",
         "sku": args.sku, "qty": args.qty, "vendor_id": vendor.id if vendor else None,
         "vendor_name": vendor.name if vendor else None,
         "vendor_reliability": vendor.reliability if vendor else None,
+        "rl_recommendation": rl_recommendation,
         "route_id": "R-VN",
         "cost": ((vendor.unit_cost + sim.routes["R-VN"].cost_per_unit) * args.qty) if vendor else 0,
         "carbon": sim.routes["R-VN"].carbon_per_unit * args.qty,
@@ -208,7 +213,12 @@ def compare_recovery_options(sim: SimulationState, args: CompareInput, contract:
         candidate["score"] = _score(candidate, contract)
     feasible = [c for c in (transfer, purchase) if c["feasible"]]
     winner = min(feasible, key=lambda c: c["score"]) if feasible else None
+    if winner and winner["id"] == "purchase":
+        # A bandit decision is counted only once supplier recovery is actually the safe plan.
+        sim.learning_decisions += 1
     reason = (f"{winner['label']} has the lowest contract-normalized score ({winner['score']})." if winner else "No candidate satisfies the Recovery Contract.")
+    if winner and winner["id"] == "purchase" and rl_recommendation:
+        reason += f" Supplier intelligence recommends {rl_recommendation['vendor_name']} ({rl_recommendation['mode']})."
     return CompareOutput(candidates=[transfer, purchase], recommended=winner["id"] if winner else None, reason=reason).model_dump()
 
 
@@ -238,7 +248,8 @@ def create_purchase_order(sim: SimulationState, args: PurchaseInput, contract: R
     sim.metrics["extra_cost"] += (vendor.unit_cost + sim.routes["R-VN"].cost_per_unit) * args.qty
     sim.metrics["extra_carbon"] += sim.routes["R-VN"].carbon_per_unit * args.qty
     sim.metrics["delay_hours"] = max(sim.metrics["delay_hours"], vendor.lead_time_hours)
-    sim.pending_actions[action_id] = {"type": "purchase", **args.model_dump(), "destination": "WH-NORTH", "verified": False}
+    delivery = simulated_delivery_outcome(sim, vendor, args.qty, contract)
+    sim.pending_actions[action_id] = {"type": "purchase", **args.model_dump(), "destination": "WH-NORTH", "verified": False, "delivery": delivery, "total_cost": (vendor.unit_cost + sim.routes["R-VN"].cost_per_unit) * args.qty, "carbon": sim.routes["R-VN"].carbon_per_unit * args.qty}
     return ActionOutput(action_id=action_id, status="received", detail=f"PO received from {vendor.name}").model_dump()
 
 
@@ -257,9 +268,26 @@ def verify_action_effect(sim: SimulationState, args: VerifyActionInput) -> dict:
         sim.metrics["extra_cost"] += route.cost_per_unit * action["qty"]
         sim.metrics["extra_carbon"] += route.carbon_per_unit * action["qty"]
         sim.metrics["delay_hours"] = max(sim.metrics["delay_hours"], route.lead_time_hours)
+    elif action["type"] == "purchase":
+        vendor = sim.vendors[action["vendor_id"]]
+        delivery = action["delivery"]
+        learning = update_learning(sim, vendor, successful=delivery["successful"], on_time=delivery["on_time"], actual_hours=delivery["actual_delivery_hours"], total_cost=action["total_cost"], carbon=action["carbon"])
+        if not delivery["successful"]:
+            sim.warehouses[action["destination"]].inventory[action["sku"]] -= action["qty"]
+            sim.metrics["extra_cost"] -= action["total_cost"]
+            sim.metrics["extra_carbon"] -= action["carbon"]
+            action["status"] = "failed"
+            return {"passed": False, "action_id": args.action_id, "detail": f"Supplier {vendor.name} delivery failed; inventory was not received.", "learning_update": learning}
+        if not delivery["on_time"]:
+            action["status"] = "late"
+            return {"passed": False, "action_id": args.action_id, "detail": f"Supplier {vendor.name} arrived late ({delivery['actual_delivery_hours']}h); recovery must replan.", "learning_update": learning}
+        action["learning_update"] = learning
     action["verified"] = True
     action["status"] = "verified"
-    return {"passed": True, "action_id": args.action_id, "detail": "Observed inventory and delivery effect matches the action."}
+    response = {"passed": True, "action_id": args.action_id, "detail": "Observed inventory and delivery effect matches the action."}
+    if action.get("learning_update"):
+        response["learning_update"] = action["learning_update"]
+    return response
 
 
 def verify_recovery_contract(sim: SimulationState, args: VerifyContractInput, contract: RecoveryContract) -> dict:

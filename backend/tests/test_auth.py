@@ -30,6 +30,12 @@ def test_multiple_warehouse_accounts_login_independently(tmp_path, monkeypatch):
     auth.save_recovery_history(first["user"]["id"], "RUN-1", "verified", "Pune Hub", "Pune", {"required_quantity": 30})
     assert auth.get_recovery_history(first["user"]["id"])[0]["run_id"] == "RUN-1"
 
+    removed = auth.delete_warehouse(first["user"]["id"], source_id)
+    assert [warehouse["id"] for warehouse in removed["warehouses"]] == [destination_id]
+    with pytest.raises(HTTPException) as last_warehouse:
+        auth.delete_warehouse(first["user"]["id"], destination_id)
+    assert last_warehouse.value.status_code == 400
+
     auth.logout(f"Bearer {session['token']}")
     with pytest.raises(HTTPException) as expired:
         auth.current_user(f"Bearer {session['token']}")

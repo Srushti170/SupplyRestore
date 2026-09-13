@@ -21,7 +21,7 @@ def seed_data() -> dict:
         },
         "vendors": {
             v.id: v for v in [
-                Vendor(id="V-BUDGET", name="ValueSource", reliability=.91, unit_cost=7, lead_time_hours=12),
+                Vendor(id="V-BUDGET", name="ValueSource", reliability=.91, unit_cost=7, lead_time_hours=6),
                 Vendor(id="V-RAPID", name="RapidSupply", reliability=.99, unit_cost=12, lead_time_hours=4),
             ]
         },
@@ -44,4 +44,3 @@ def seed_data() -> dict:
             CustomerOrder(id="ORD-006", sku="SKU-200", qty=10, priority="standard", due_date=(now + timedelta(hours=26)).isoformat()),
         ],
     }
-

@@ -80,6 +80,10 @@ def test_flagship_scenario_replans_and_finishes_verified(sim, contract):
     assert any(e.type == "verification" and e.content["output"].get("passed") is False for e in run.events)
     assert any(e.type == "replan" for e in run.events)
     assert any(e.content.get("tool") == "create_purchase_order" for e in run.events)
+    update = next(event.content["output"] for event in run.events if event.type == "learning")
+    assert update["vendor_id"] == "V-RAPID"
+    assert update["reward"] > 0
+    assert sim.supplier_learning["V-RAPID"]["deliveries"] == 11
 
 
 def test_manual_inventory_and_demand_drive_action_quantity(sim, contract):
