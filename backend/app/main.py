@@ -3,11 +3,12 @@ from __future__ import annotations
 import os
 from threading import Thread
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, Header, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from .agent import run_agent
+from .auth import WarehouseRequest, LoginRequest, SignupRequest, add_warehouse, current_user, login, logout, signup
 from .models import AgentEvent, AgentRun, RecoveryContract
 from .simulation.state import state
 
@@ -26,6 +27,33 @@ class RunRequest(BaseModel):
     contract_id: str
     provider: str = "auto"
     scenario: str = "flagship"
+
+
+@app.post("/auth/signup")
+def create_account(request: SignupRequest) -> dict:
+    return signup(request)
+
+
+@app.post("/auth/login")
+def login_account(request: LoginRequest) -> dict:
+    return login(request)
+
+
+@app.get("/auth/me")
+def get_account(authorization: str | None = Header(default=None)) -> dict:
+    return current_user(authorization)
+
+
+@app.post("/auth/logout")
+def logout_account(authorization: str | None = Header(default=None)) -> dict:
+    logout(authorization)
+    return {"ok": True}
+
+
+@app.post("/warehouses")
+def create_warehouse(request: WarehouseRequest, authorization: str | None = Header(default=None)) -> dict:
+    user = current_user(authorization)
+    return add_warehouse(user["id"], request)
 
 
 @app.get("/health")

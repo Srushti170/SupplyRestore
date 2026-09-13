@@ -1,0 +1,82 @@
+export type Locale = "en" | "hi" | "mr";
+
+export const COPY = {
+  en: {
+    controlRoom: "Control room", tagline: "From disruption to verified recovery.", liveOperations: "Live operations",
+    aiConnected: "AI agent connected", localReady: "Local agent ready", backendOffline: "Backend offline", checkingAgent: "Checking agent…",
+    recoveryContract: "Recovery contract", guardrails: "Operating guardrails", minFulfilment: "Minimum fulfilment", maxCost: "Maximum extra cost", maxCarbon: "Maximum carbon", maxDelay: "Maximum delay",
+    start: "Start recovery", recovering: "Recovery in progress…", liveNetwork: "Live network", networkWaiting: "Network appears when a run starts", open: "Open", closed: "Closed",
+    autonomousExecution: "Autonomous execution", timeline: "Recovery timeline", verified: "Recovery verified", infeasible: "Recovery infeasible", failed: "Run failed", running: "Recovery running",
+    readyTitle: "Ready to restore supply", readyBody: "Set the operating guardrails and start a run. Every decision, action, failure, and verification will appear here.", processing: "Agent is processing the next step…",
+    optimizer: "Deterministic optimizer", evolution: "Decision evolution", evolutionBody: "Why the recovery plan changed after the disruption", initial: "Initial decision", replan: "Recovery replan", beforeDisruption: "Before route disruption", afterClosure: "After route R-SN closed", replanned: "Replanned",
+    transfer: "Inter-warehouse transfer", purchase: "Emergency purchase order", supplier: "Supplier", selected: "Selected", unavailable: "Unavailable", constraintViolation: "Contract constraint violated",
+    selectedReason: "has the lowest contract-normalized score", noCandidate: "No option satisfies the Recovery Contract.",
+    operationalState: "Operational state", northStock: "North SKU-100", southStock: "South SKU-100", extraCost: "Extra cost", carbon: "Carbon", units: "units",
+    supplyPartners: "Supply partners", awaitingScan: "Awaiting network scan", recoveryResult: "Recovery result", viewCertificate: "View verification certificate",
+    certificate: "Verification certificate", accomplished: "Recovery accomplished", couldNotComplete: "Recovery could not be completed",
+    successBody: "The selected recovery path passed every active contract check.", infeasibleBody: "The analysis completed, but no available option satisfies every active guardrail.", failureBody: "The workflow stopped before a verified recovery could be produced.",
+    finalPath: "Final recovery path", supplierSelected: "Supplier selected", recoveryMethod: "Recovery method", whySelected: "Why selected", contractChecks: "Contract checks",
+    noEvidence: "Verification evidence was not completed. Review the final timeline event for details.", evidenceComplete: "All evidence complete", analysisComplete: "Analysis complete · constraints unmet", actionRequired: "Action required", closeResult: "Close recovery result",
+    goalTitle: "Recovery Contract activated", goalMessage: "Protect high-priority orders within cost, carbon, and delay limits.", disruptionTitle: "Route closed mid-transfer", disruptionMessage: "The simulator closed R-SN after dispatch and before verification.", replanTitle: "Live replan required", replanMessage: "The chosen action is no longer viable. Re-investigating alternatives.",
+    decisionTitle: "AI selected recovery action", alternateTitle: "AI selected alternate action", decisionMessage: "The live agent approved the optimizer-recommended action.", infeasibleTitle: "Recovery contract is infeasible",
+    welcome: "Warehouse access", welcomeBody: "Sign in to open your warehouse recovery control room.", login: "Log in", signup: "Create account", name: "Your name", username: "Username or email", password: "Password", warehouseName: "Warehouse name", warehouseLocation: "Warehouse location", locationHint: "City, address, or coordinates", newAccount: "New warehouse?", existingAccount: "Already registered?", creatingAccount: "Creating account…", signingIn: "Signing in…", logout: "Log out", signedInWarehouse: "Active warehouse", secureWorkspace: "Secure warehouse workspace", authFeatureOne: "Monitor warehouse recovery decisions", authFeatureTwo: "Track routes, suppliers, and verification", authFeatureThree: "Each account keeps its own warehouse identity", addWarehouse: "Add warehouse", yourWarehouses: "Your warehouses", addWarehouseBody: "Add another warehouse to this account.", addingWarehouse: "Adding warehouse…", cancel: "Cancel", warehouseAdded: "Warehouse added",
+  },
+  hi: {
+    controlRoom: "कंट्रोल रूम", tagline: "व्यवधान से सत्यापित रिकवरी तक।", liveOperations: "लाइव संचालन",
+    aiConnected: "AI एजेंट कनेक्टेड", localReady: "लोकल एजेंट तैयार", backendOffline: "बैकएंड ऑफलाइन", checkingAgent: "एजेंट की जाँच…",
+    recoveryContract: "रिकवरी अनुबंध", guardrails: "संचालन सीमाएँ", minFulfilment: "न्यूनतम पूर्ति", maxCost: "अधिकतम अतिरिक्त लागत", maxCarbon: "अधिकतम कार्बन", maxDelay: "अधिकतम देरी",
+    start: "रिकवरी शुरू करें", recovering: "रिकवरी जारी है…", liveNetwork: "लाइव नेटवर्क", networkWaiting: "रन शुरू होने पर नेटवर्क दिखेगा", open: "खुला", closed: "बंद",
+    autonomousExecution: "स्वायत्त संचालन", timeline: "रिकवरी टाइमलाइन", verified: "रिकवरी सत्यापित", infeasible: "रिकवरी संभव नहीं", failed: "रन विफल", running: "रिकवरी जारी",
+    readyTitle: "आपूर्ति बहाल करने के लिए तैयार", readyBody: "संचालन सीमाएँ निर्धारित करें और रन शुरू करें। हर निर्णय, कार्रवाई, विफलता और सत्यापन यहाँ दिखाई देगा।", processing: "एजेंट अगला चरण प्रोसेस कर रहा है…",
+    optimizer: "नियतात्मक ऑप्टिमाइज़र", evolution: "निर्णय का विकास", evolutionBody: "व्यवधान के बाद रिकवरी योजना क्यों बदली", initial: "प्रारंभिक निर्णय", replan: "रिकवरी पुनर्योजना", beforeDisruption: "मार्ग व्यवधान से पहले", afterClosure: "मार्ग R-SN बंद होने के बाद", replanned: "पुनर्योजना",
+    transfer: "वेयरहाउस के बीच ट्रांसफर", purchase: "आपातकालीन खरीद आदेश", supplier: "आपूर्तिकर्ता", selected: "चयनित", unavailable: "अनुपलब्ध", constraintViolation: "अनुबंध सीमा का उल्लंघन",
+    selectedReason: "का अनुबंध-अनुकूल स्कोर सबसे कम है", noCandidate: "कोई विकल्प रिकवरी अनुबंध पूरा नहीं करता।",
+    operationalState: "संचालन स्थिति", northStock: "उत्तर SKU-100", southStock: "दक्षिण SKU-100", extraCost: "अतिरिक्त लागत", carbon: "कार्बन", units: "यूनिट",
+    supplyPartners: "आपूर्ति साझेदार", awaitingScan: "नेटवर्क स्कैन की प्रतीक्षा", recoveryResult: "रिकवरी परिणाम", viewCertificate: "सत्यापन प्रमाणपत्र देखें",
+    certificate: "सत्यापन प्रमाणपत्र", accomplished: "रिकवरी सफल", couldNotComplete: "रिकवरी पूरी नहीं हुई",
+    successBody: "चयनित रिकवरी मार्ग ने सभी सक्रिय अनुबंध जाँच पास कीं।", infeasibleBody: "विश्लेषण पूरा हुआ, लेकिन कोई उपलब्ध विकल्प सभी सक्रिय सीमाएँ पूरी नहीं करता।", failureBody: "सत्यापित रिकवरी बनने से पहले वर्कफ़्लो रुक गया।",
+    finalPath: "अंतिम रिकवरी मार्ग", supplierSelected: "चयनित आपूर्तिकर्ता", recoveryMethod: "रिकवरी विधि", whySelected: "चयन का कारण", contractChecks: "अनुबंध जाँच",
+    noEvidence: "सत्यापन प्रमाण पूरा नहीं हुआ। विवरण के लिए अंतिम टाइमलाइन घटना देखें।", evidenceComplete: "सभी प्रमाण पूर्ण", analysisComplete: "विश्लेषण पूर्ण · सीमाएँ अधूरी", actionRequired: "कार्रवाई आवश्यक", closeResult: "रिकवरी परिणाम बंद करें",
+    goalTitle: "रिकवरी अनुबंध सक्रिय", goalMessage: "लागत, कार्बन और देरी सीमाओं में उच्च-प्राथमिकता ऑर्डर सुरक्षित रखें।", disruptionTitle: "ट्रांसफर के दौरान मार्ग बंद", disruptionMessage: "डिस्पैच के बाद और सत्यापन से पहले सिम्युलेटर ने R-SN बंद किया।", replanTitle: "लाइव पुनर्योजना आवश्यक", replanMessage: "चुनी गई कार्रवाई अब संभव नहीं है। विकल्पों की दोबारा जाँच हो रही है।",
+    decisionTitle: "AI ने रिकवरी कार्रवाई चुनी", alternateTitle: "AI ने वैकल्पिक कार्रवाई चुनी", decisionMessage: "लाइव एजेंट ने ऑप्टिमाइज़र द्वारा सुझाई कार्रवाई स्वीकृत की।", infeasibleTitle: "रिकवरी अनुबंध संभव नहीं",
+    welcome: "वेयरहाउस प्रवेश", welcomeBody: "अपने वेयरहाउस रिकवरी कंट्रोल रूम को खोलने के लिए लॉग इन करें।", login: "लॉग इन", signup: "खाता बनाएँ", name: "आपका नाम", username: "यूज़रनेम या ईमेल", password: "पासवर्ड", warehouseName: "वेयरहाउस का नाम", warehouseLocation: "वेयरहाउस का स्थान", locationHint: "शहर, पता या निर्देशांक", newAccount: "नया वेयरहाउस?", existingAccount: "पहले से पंजीकृत?", creatingAccount: "खाता बनाया जा रहा है…", signingIn: "लॉग इन हो रहा है…", logout: "लॉग आउट", signedInWarehouse: "सक्रिय वेयरहाउस", secureWorkspace: "सुरक्षित वेयरहाउस कार्यक्षेत्र", authFeatureOne: "वेयरहाउस रिकवरी निर्णयों की निगरानी", authFeatureTwo: "मार्ग, आपूर्तिकर्ता और सत्यापन ट्रैक करें", authFeatureThree: "हर खाते की अपनी वेयरहाउस पहचान", addWarehouse: "वेयरहाउस जोड़ें", yourWarehouses: "आपके वेयरहाउस", addWarehouseBody: "इस खाते में एक और वेयरहाउस जोड़ें।", addingWarehouse: "वेयरहाउस जोड़ा जा रहा है…", cancel: "रद्द करें", warehouseAdded: "वेयरहाउस जोड़ा गया",
+  },
+  mr: {
+    controlRoom: "नियंत्रण कक्ष", tagline: "व्यत्ययापासून सत्यापित पुनर्प्राप्तीपर्यंत।", liveOperations: "थेट कार्यप्रणाली",
+    aiConnected: "AI एजंट जोडलेला", localReady: "स्थानिक एजंट तयार", backendOffline: "बॅकएंड ऑफलाइन", checkingAgent: "एजंट तपासत आहे…",
+    recoveryContract: "पुनर्प्राप्ती करार", guardrails: "कार्य मर्यादा", minFulfilment: "किमान पूर्तता", maxCost: "कमाल अतिरिक्त खर्च", maxCarbon: "कमाल कार्बन", maxDelay: "कमाल विलंब",
+    start: "पुनर्प्राप्ती सुरू करा", recovering: "पुनर्प्राप्ती सुरू आहे…", liveNetwork: "थेट नेटवर्क", networkWaiting: "रन सुरू झाल्यावर नेटवर्क दिसेल", open: "उघडा", closed: "बंद",
+    autonomousExecution: "स्वायत्त अंमलबजावणी", timeline: "पुनर्प्राप्ती कालरेषा", verified: "पुनर्प्राप्ती सत्यापित", infeasible: "पुनर्प्राप्ती अशक्य", failed: "रन अयशस्वी", running: "पुनर्प्राप्ती सुरू",
+    readyTitle: "पुरवठा पूर्ववत करण्यास तयार", readyBody: "कार्य मर्यादा ठरवा आणि रन सुरू करा. प्रत्येक निर्णय, कृती, अपयश आणि पडताळणी येथे दिसेल.", processing: "एजंट पुढील टप्प्यावर प्रक्रिया करत आहे…",
+    optimizer: "निश्चित ऑप्टिमायझर", evolution: "निर्णयातील बदल", evolutionBody: "व्यत्ययानंतर पुनर्प्राप्ती योजना का बदलली", initial: "प्रारंभिक निर्णय", replan: "पुनर्प्राप्ती पुनर्नियोजन", beforeDisruption: "मार्ग व्यत्ययापूर्वी", afterClosure: "मार्ग R-SN बंद झाल्यानंतर", replanned: "पुनर्नियोजित",
+    transfer: "गोदामांमधील हस्तांतरण", purchase: "तातडीची खरेदी ऑर्डर", supplier: "पुरवठादार", selected: "निवडले", unavailable: "अनुपलब्ध", constraintViolation: "करार मर्यादेचे उल्लंघन",
+    selectedReason: "चा करार-सामान्यीकृत गुण सर्वात कमी आहे", noCandidate: "कोणताही पर्याय पुनर्प्राप्ती करार पूर्ण करत नाही.",
+    operationalState: "कार्य स्थिती", northStock: "उत्तर SKU-100", southStock: "दक्षिण SKU-100", extraCost: "अतिरिक्त खर्च", carbon: "कार्बन", units: "युनिट",
+    supplyPartners: "पुरवठा भागीदार", awaitingScan: "नेटवर्क स्कॅनची प्रतीक्षा", recoveryResult: "पुनर्प्राप्ती निकाल", viewCertificate: "पडताळणी प्रमाणपत्र पहा",
+    certificate: "पडताळणी प्रमाणपत्र", accomplished: "पुनर्प्राप्ती यशस्वी", couldNotComplete: "पुनर्प्राप्ती पूर्ण झाली नाही",
+    successBody: "निवडलेल्या पुनर्प्राप्ती मार्गाने सर्व सक्रिय करार तपासण्या उत्तीर्ण केल्या.", infeasibleBody: "विश्लेषण पूर्ण झाले, परंतु कोणताही उपलब्ध पर्याय सर्व सक्रिय मर्यादा पूर्ण करत नाही.", failureBody: "सत्यापित पुनर्प्राप्ती तयार होण्यापूर्वी कार्यप्रवाह थांबला.",
+    finalPath: "अंतिम पुनर्प्राप्ती मार्ग", supplierSelected: "निवडलेला पुरवठादार", recoveryMethod: "पुनर्प्राप्ती पद्धत", whySelected: "निवडीचे कारण", contractChecks: "करार तपासण्या",
+    noEvidence: "पडताळणी पुरावा पूर्ण झाला नाही. तपशीलांसाठी अंतिम कालरेषा घटना पहा.", evidenceComplete: "सर्व पुरावे पूर्ण", analysisComplete: "विश्लेषण पूर्ण · मर्यादा अपूर्ण", actionRequired: "कृती आवश्यक", closeResult: "पुनर्प्राप्ती निकाल बंद करा",
+    goalTitle: "पुनर्प्राप्ती करार सक्रिय", goalMessage: "खर्च, कार्बन आणि विलंब मर्यादेत उच्च-प्राधान्य ऑर्डर सुरक्षित ठेवा.", disruptionTitle: "हस्तांतरणादरम्यान मार्ग बंद", disruptionMessage: "डिस्पॅचनंतर आणि पडताळणीपूर्वी सिम्युलेटरने R-SN बंद केला.", replanTitle: "थेट पुनर्नियोजन आवश्यक", replanMessage: "निवडलेली कृती आता शक्य नाही. पर्यायांची पुन्हा तपासणी सुरू आहे.",
+    decisionTitle: "AI ने पुनर्प्राप्ती कृती निवडली", alternateTitle: "AI ने पर्यायी कृती निवडली", decisionMessage: "थेट एजंटने ऑप्टिमायझरने सुचवलेली कृती मान्य केली.", infeasibleTitle: "पुनर्प्राप्ती करार शक्य नाही",
+    welcome: "गोदाम प्रवेश", welcomeBody: "तुमचा गोदाम पुनर्प्राप्ती नियंत्रण कक्ष उघडण्यासाठी लॉग इन करा.", login: "लॉग इन", signup: "खाते तयार करा", name: "तुमचे नाव", username: "वापरकर्तानाव किंवा ईमेल", password: "पासवर्ड", warehouseName: "गोदामाचे नाव", warehouseLocation: "गोदामाचे स्थान", locationHint: "शहर, पत्ता किंवा निर्देशांक", newAccount: "नवीन गोदाम?", existingAccount: "आधीच नोंदणीकृत?", creatingAccount: "खाते तयार होत आहे…", signingIn: "लॉग इन होत आहे…", logout: "लॉग आउट", signedInWarehouse: "सक्रिय गोदाम", secureWorkspace: "सुरक्षित गोदाम कार्यक्षेत्र", authFeatureOne: "गोदाम पुनर्प्राप्ती निर्णयांचे निरीक्षण", authFeatureTwo: "मार्ग, पुरवठादार आणि पडताळणीचा मागोवा", authFeatureThree: "प्रत्येक खात्याची स्वतंत्र गोदाम ओळख", addWarehouse: "गोदाम जोडा", yourWarehouses: "तुमची गोदामे", addWarehouseBody: "या खात्यात आणखी एक गोदाम जोडा.", addingWarehouse: "गोदाम जोडत आहे…", cancel: "रद्द करा", warehouseAdded: "गोदाम जोडले",
+  },
+} as const;
+
+export const TOOL_LABELS: Record<Locale, Record<string, string>> = {
+  en: { get_inventory: "Get inventory", get_shipment_status: "Get shipment status", calculate_projected_shortages: "Calculate projected shortages", get_network_state: "Get network state", get_vendor_options: "Get vendor options", compare_recovery_options: "Compare recovery options", transfer_inventory: "Transfer inventory", create_purchase_order: "Create purchase order", verify_action_effect: "Verify action effect", verify_recovery_contract: "Verify Recovery Contract" },
+  hi: { get_inventory: "इन्वेंटरी जाँचें", get_shipment_status: "शिपमेंट स्थिति जाँचें", calculate_projected_shortages: "अनुमानित कमी गणना", get_network_state: "नेटवर्क स्थिति जाँचें", get_vendor_options: "विक्रेता विकल्प जाँचें", compare_recovery_options: "रिकवरी विकल्प तुलना", transfer_inventory: "इन्वेंटरी ट्रांसफर", create_purchase_order: "खरीद आदेश बनाएँ", verify_action_effect: "कार्रवाई प्रभाव सत्यापित", verify_recovery_contract: "रिकवरी अनुबंध सत्यापित" },
+  mr: { get_inventory: "साठा तपासा", get_shipment_status: "शिपमेंट स्थिती तपासा", calculate_projected_shortages: "अंदाजित तूट मोजा", get_network_state: "नेटवर्क स्थिती तपासा", get_vendor_options: "विक्रेता पर्याय तपासा", compare_recovery_options: "पुनर्प्राप्ती पर्याय तुलना", transfer_inventory: "साठा हस्तांतरित करा", create_purchase_order: "खरेदी ऑर्डर तयार करा", verify_action_effect: "कृती परिणाम पडताळा", verify_recovery_contract: "पुनर्प्राप्ती करार पडताळा" },
+};
+
+export const EVENT_LABELS: Record<Locale, Record<string, string>> = {
+  en: { goal: "Goal", monitor: "Monitor", detection: "Detection", investigation: "Investigation", comparison: "Comparison", decision: "AI decision", action: "Action", disruption: "Disruption", verification: "Verification", replan: "Replan", certificate: "Certificate", infeasible: "Infeasible", error: "Error" },
+  hi: { goal: "लक्ष्य", monitor: "निगरानी", detection: "पहचान", investigation: "जाँच", comparison: "तुलना", decision: "AI निर्णय", action: "कार्रवाई", disruption: "व्यवधान", verification: "सत्यापन", replan: "पुनर्योजना", certificate: "प्रमाणपत्र", infeasible: "असंभव", error: "त्रुटि" },
+  mr: { goal: "उद्दिष्ट", monitor: "निरीक्षण", detection: "ओळख", investigation: "तपास", comparison: "तुलना", decision: "AI निर्णय", action: "कृती", disruption: "व्यत्यय", verification: "पडताळणी", replan: "पुनर्नियोजन", certificate: "प्रमाणपत्र", infeasible: "अशक्य", error: "त्रुटी" },
+};
+
+export const CHECK_LABELS: Record<Locale, Record<string, string>> = {
+  en: {},
+  hi: { "High-priority fulfilment": "उच्च-प्राथमिकता पूर्ति", "Extra cost": "अतिरिक्त लागत", "Extra carbon": "अतिरिक्त कार्बन", "Recovery delay": "रिकवरी देरी", "Route policy": "मार्ग नीति", "Vendor policy": "विक्रेता नीति" },
+  mr: { "High-priority fulfilment": "उच्च-प्राधान्य पूर्तता", "Extra cost": "अतिरिक्त खर्च", "Extra carbon": "अतिरिक्त कार्बन", "Recovery delay": "पुनर्प्राप्ती विलंब", "Route policy": "मार्ग धोरण", "Vendor policy": "विक्रेता धोरण" },
+};
