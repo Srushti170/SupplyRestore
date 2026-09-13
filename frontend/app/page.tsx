@@ -1,0 +1,132 @@
+"use client";
+
+import { useEffect, useMemo, useState } from "react";
+import {
+  Activity, AlertTriangle, ArrowRight, BadgeCheck, Boxes, Check, CircleDollarSign,
+  Cloud, FileCheck2, Gauge, LoaderCircle, Network, Play, RotateCcw, Route, ShieldCheck,
+  ShoppingCart, Sparkles, Timer, Truck, Warehouse, X,
+} from "lucide-react";
+
+const API = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
+
+type Candidate = { id: string; label: string; cost: number; carbon: number; delay_hours: number; score: number; feasible: boolean };
+type Event = { type: string; timestamp: string; content: { title?: string; message?: string; tool?: string; output?: Record<string, any> } };
+type Run = { id: string; status: string; provider: string; events: Event[]; verification?: { passed: boolean; checks: CheckResult[] }; state: State };
+type CheckResult = { name: string; passed: boolean; detail: string };
+type State = { warehouses: { id: string; name: string; inventory: Record<string, number> }[]; vendors: { id: string; name: string; reliability: number; unit_cost: number; lead_time_hours: number; blocked: boolean }[]; routes: { id: string; from: string; to: string; status: string; lead_time_hours: number }[]; shipments: { id: string; product: string; qty: number; status: string }[]; metrics: Record<string, number> };
+
+const defaults = { min_fulfilment_pct: 100, max_extra_cost: 500, max_extra_carbon: 100, max_delay_hours: 8 };
+
+const eventStyle: Record<string, { color: string; icon: typeof Activity }> = {
+  goal: { color: "#73e6aa", icon: ShieldCheck }, monitor: { color: "#7db7ff", icon: Activity },
+  detection: { color: "#ffb35c", icon: AlertTriangle }, investigation: { color: "#b29aff", icon: Network },
+  comparison: { color: "#f2cf68", icon: Gauge }, action: { color: "#68dbe0", icon: Truck },
+  disruption: { color: "#ff6b6b", icon: X }, verification: { color: "#f59eaa", icon: FileCheck2 },
+  replan: { color: "#ff9f6e", icon: RotateCcw }, certificate: { color: "#54e090", icon: BadgeCheck },
+  infeasible: { color: "#ffb35c", icon: AlertTriangle },
+  error: { color: "#ff6b6b", icon: AlertTriangle },
+};
+
+function Panel({ children, className = "" }: { children: React.ReactNode; className?: string }) {
+  return <section className={`rounded-2xl border border-[#203b31] bg-[#0c1915]/90 shadow-[0_16px_60px_rgba(0,0,0,.18)] ${className}`}>{children}</section>;
+}
+
+function Metric({ icon: Icon, label, value, unit }: { icon: typeof Timer; label: string; value: string | number; unit?: string }) {
+  return <div className="rounded-xl border border-[#20382f] bg-[#0a1512] p-3.5">
+    <div className="mb-2 flex items-center gap-2 text-[11px] font-semibold uppercase tracking-[.14em] text-[#7f9c90]"><Icon size={14} />{label}</div>
+    <div className="font-mono text-xl font-semibold text-white">{value}<span className="ml-1 text-xs font-normal text-[#718a80]">{unit}</span></div>
+  </div>;
+}
+
+export default function Home() {
+  const [form, setForm] = useState(defaults);
+  const [run, setRun] = useState<Run | null>(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+  const [agentMode, setAgentMode] = useState<"checking" | "live_ai" | "local_deterministic" | "offline">("checking");
+
+  const comparison = useMemo(() => run?.events.findLast?.(e => e.type === "comparison")?.content.output as { candidates?: Candidate[]; recommended?: string; reason?: string } | undefined, [run]);
+
+  useEffect(() => {
+    fetch(`${API}/health`).then(response => response.ok ? response.json() : Promise.reject()).then(data => setAgentMode(data.agent_mode)).catch(() => setAgentMode("offline"));
+  }, []);
+
+  useEffect(() => {
+    if (!run?.id || run.status !== "running") return;
+    const timer = setInterval(async () => {
+      const response = await fetch(`${API}/runs/${run.id}`);
+      if (response.ok) setRun(await response.json());
+    }, 1500);
+    return () => clearInterval(timer);
+  }, [run?.id, run?.status]);
+
+  async function startRun() {
+    setLoading(true); setError(""); setRun(null);
+    try {
+      await fetch(`${API}/reset`, { method: "POST" });
+      const contractResponse = await fetch(`${API}/contracts`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(form) });
+      if (!contractResponse.ok) throw new Error("Could not create Recovery Contract");
+      const contract = await contractResponse.json();
+      const runResponse = await fetch(`${API}/runs`, { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ contract_id: contract.id }) });
+      const started = await runResponse.json();
+      if (!runResponse.ok) throw new Error(started.detail || "Run failed to start");
+      const detail = await fetch(`${API}/runs/${started.id}`);
+      setRun(await detail.json());
+    } catch (cause) { setError(cause instanceof Error ? cause.message : "Unexpected error"); }
+    finally { setLoading(false); }
+  }
+
+  return <main className="relative mx-auto max-w-[1500px] px-5 py-5 lg:px-8">
+    <header className="mb-5 flex flex-wrap items-center justify-between gap-4 border-b border-[#1c332a] pb-5">
+      <div className="flex items-center gap-3.5">
+        <div className="grid h-11 w-11 place-items-center rounded-xl bg-[#56e39a] text-[#052117] shadow-[0_0_32px_rgba(86,227,154,.22)]"><Boxes size={24} strokeWidth={2.4} /></div>
+        <div><div className="flex items-center gap-2"><h1 className="text-xl font-bold tracking-tight">SupplyRestore</h1><span className="rounded-full border border-[#2e5545] bg-[#10241c] px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-[#66dda0]">Control room</span></div><p className="text-sm text-[#789186]">From disruption to verified recovery.</p></div>
+      </div>
+      <div className="flex items-center gap-3 text-xs text-[#88a298]"><span className="flex items-center gap-1.5"><span className={`h-2 w-2 rounded-full ${agentMode === "live_ai" ? "animate-pulse bg-[#56e39a]" : agentMode === "offline" ? "bg-red-500" : "bg-amber-400"}`} />{agentMode === "live_ai" ? "AI agent connected" : agentMode === "local_deterministic" ? "Local agent ready" : agentMode === "offline" ? "Backend offline" : "Checking agent…"}</span><span className="h-4 w-px bg-[#2a4138]" /><span className="font-mono">Live operations</span></div>
+    </header>
+
+    <div className="grid gap-5 xl:grid-cols-[330px_minmax(0,1fr)_340px]">
+      <div className="space-y-5">
+        <Panel className="p-5">
+          <div className="mb-5 flex items-start justify-between"><div><p className="text-[11px] font-bold uppercase tracking-[.18em] text-[#5cdd99]">Recovery contract</p><h2 className="mt-1 text-lg font-semibold">Operating guardrails</h2></div><ShieldCheck className="text-[#4ad58e]" size={22} /></div>
+          <div className="space-y-4">
+            {[
+              ["min_fulfilment_pct", "Minimum fulfilment", "%"], ["max_extra_cost", "Maximum extra cost", "$"],
+              ["max_extra_carbon", "Maximum carbon", "kg"], ["max_delay_hours", "Maximum delay", "hours"],
+            ].map(([key, label, unit]) => <label className="block" key={key}><span className="mb-1.5 flex justify-between text-xs text-[#91a99f]"><span>{label}</span><span>{unit}</span></span><input type="number" value={form[key as keyof typeof form]} onChange={e => setForm({ ...form, [key]: Number(e.target.value) })} className="w-full rounded-lg border border-[#284238] bg-[#08130f] px-3 py-2.5 font-mono text-sm outline-none transition focus:border-[#50d895]" /></label>)}
+            <button onClick={startRun} disabled={loading} className="mt-2 flex w-full items-center justify-center gap-2 rounded-lg bg-[#56e39a] px-4 py-3 text-sm font-bold text-[#062117] transition hover:bg-[#73ecad] disabled:opacity-60">{loading ? <LoaderCircle className="animate-spin" size={17} /> : <Play size={17} fill="currentColor" />}{loading ? "Recovering…" : "Start recovery"}</button>
+            {error && <p className="rounded-lg border border-red-900/60 bg-red-950/30 p-3 text-xs text-red-300">{error}</p>}
+          </div>
+        </Panel>
+        <Panel className="overflow-hidden">
+          <div className="flex items-center justify-between border-b border-[#203b31] px-5 py-4"><h3 className="text-sm font-semibold">Live network</h3><Network size={16} className="text-[#6a8b7d]" /></div>
+          <div className="p-3">
+            {(run?.state.routes || []).map(route => <div key={route.id} className="mb-2 flex items-center gap-3 rounded-xl bg-[#091510] p-3 last:mb-0"><div className={`h-2.5 w-2.5 rounded-full ${route.status === "open" ? "bg-[#4edb91]" : "bg-[#ff6868] shadow-[0_0_12px_#ff686866]"}`} /><div className="min-w-0 flex-1"><div className="font-mono text-xs font-semibold">{route.id}</div><div className="truncate text-[11px] text-[#6e897d]">{route.from} → {route.to}</div></div><span className={`rounded px-2 py-1 text-[10px] font-bold uppercase ${route.status === "open" ? "bg-emerald-950 text-emerald-300" : "bg-red-950 text-red-300"}`}>{route.status}</span></div>)}
+            {!run && <div className="py-8 text-center text-xs text-[#627b70]"><Route className="mx-auto mb-2" size={22} />Network appears when a run starts</div>}
+          </div>
+        </Panel>
+      </div>
+
+      <div className="min-w-0 space-y-5">
+        <Panel className="overflow-hidden">
+          <div className="flex items-center justify-between border-b border-[#203b31] px-5 py-4"><div><p className="text-[10px] font-bold uppercase tracking-widest text-[#68897b]">Autonomous execution</p><h2 className="mt-0.5 font-semibold">Recovery timeline</h2></div>{run && <span className={`rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-wider ${run.status === "verified" ? "bg-emerald-900/40 text-emerald-300" : run.status === "failed" ? "bg-red-900/40 text-red-300" : "bg-blue-900/40 text-blue-300"}`}>{run.status}</span>}</div>
+          <div className="max-h-[620px] min-h-[420px] overflow-y-auto p-5">
+            {!run ? <div className="grid min-h-[380px] place-items-center text-center"><div><div className="mx-auto mb-4 grid h-14 w-14 place-items-center rounded-full border border-[#29493c] bg-[#10241c]"><Sparkles className="text-[#56e39a]" size={24} /></div><h3 className="font-semibold">Ready to restore supply</h3><p className="mx-auto mt-2 max-w-sm text-sm leading-6 text-[#70897e]">Set the operating guardrails and start a run. Every decision, action, failure, and verification will appear here.</p></div></div> :
+              <div>{run.events.map((event, index) => {
+                const style = eventStyle[event.type] || eventStyle.monitor; const Icon = style.icon;
+                return <div key={`${event.timestamp}-${index}`} className="relative flex gap-4 pb-5 last:pb-0">{index < run.events.length - 1 && <div className="absolute left-[15px] top-8 h-[calc(100%-20px)] w-px bg-[#284137]" />}<div className="relative z-10 grid h-8 w-8 shrink-0 place-items-center rounded-full border bg-[#0b1813]" style={{ borderColor: `${style.color}66`, color: style.color }}><Icon size={15} /></div><div className="min-w-0 flex-1 rounded-xl border border-[#1c352b] bg-[#09140f] p-3.5"><div className="flex items-start justify-between gap-3"><div><span className="text-[10px] font-bold uppercase tracking-[.14em]" style={{ color: style.color }}>{event.type}</span><h4 className="mt-0.5 text-sm font-semibold">{event.content.title || event.content.tool}</h4></div><time className="whitespace-nowrap font-mono text-[10px] text-[#587166]">{new Date(event.timestamp).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" })}</time></div>{event.content.message && <p className="mt-2 text-xs leading-5 text-[#8ca399]">{event.content.message}</p>}{event.type === "verification" && event.content.output && <div className={`mt-2 flex items-center gap-2 rounded-lg px-3 py-2 text-xs ${event.content.output.passed ? "bg-emerald-950/50 text-emerald-300" : "bg-red-950/45 text-red-300"}`}>{event.content.output.passed ? <Check size={14} /> : <X size={14} />}{String(event.content.output.detail)}</div>}</div></div>;
+              })}</div>}
+          </div>
+        </Panel>
+
+        {comparison?.candidates && <Panel className="p-5"><div className="mb-4 flex items-center justify-between"><div><p className="text-[10px] font-bold uppercase tracking-widest text-[#f2cf68]">Deterministic optimizer</p><h3 className="mt-1 font-semibold">Recovery options compared</h3></div><Gauge className="text-[#f2cf68]" size={20} /></div><div className="grid gap-3 md:grid-cols-2">{comparison.candidates.map(candidate => { const selected = comparison.recommended === candidate.id; return <div key={candidate.id} className={`relative rounded-xl border p-4 ${selected ? "border-[#56e39a] bg-[#10251c] shadow-[0_0_24px_rgba(86,227,154,.08)]" : "border-[#2b3934] bg-[#09130f] opacity-75"}`}>{selected && <span className="absolute right-3 top-3 rounded bg-[#56e39a] px-2 py-1 text-[9px] font-black uppercase tracking-wider text-[#052117]">Winner</span>}<div className="mb-4 flex items-center gap-2">{candidate.id === "transfer" ? <Truck size={18} /> : <ShoppingCart size={18} />}<h4 className="text-sm font-semibold">{candidate.label}</h4></div><div className="grid grid-cols-3 gap-2 text-center"><div><p className="text-[10px] uppercase text-[#667e73]">Cost</p><p className="mt-1 font-mono text-sm">${candidate.cost}</p></div><div><p className="text-[10px] uppercase text-[#667e73]">Carbon</p><p className="mt-1 font-mono text-sm">{candidate.carbon}kg</p></div><div><p className="text-[10px] uppercase text-[#667e73]">Delay</p><p className="mt-1 font-mono text-sm">{candidate.delay_hours}h</p></div></div><div className="mt-4 flex items-center justify-between border-t border-[#294036] pt-3 text-xs"><span className="text-[#718a7f]">Weighted score</span><span className="font-mono font-bold text-white">{candidate.score.toFixed(4)}</span></div></div>})}</div><p className="mt-3 text-xs text-[#7d968b]">{comparison.reason}</p></Panel>}
+      </div>
+
+      <div className="space-y-5">
+        <Panel className="p-5"><div className="mb-4 flex items-center justify-between"><h3 className="text-sm font-semibold">Operational state</h3><Warehouse size={17} className="text-[#789287]" /></div><div className="grid grid-cols-2 gap-2"><Metric icon={Boxes} label="North SKU-100" value={run?.state.warehouses.find(w => w.id === "WH-NORTH")?.inventory["SKU-100"] ?? "—"} unit="units" /><Metric icon={Truck} label="South SKU-100" value={run?.state.warehouses.find(w => w.id === "WH-SOUTH")?.inventory["SKU-100"] ?? "—"} unit="units" /><Metric icon={CircleDollarSign} label="Extra cost" value={run ? `$${run.state.metrics.extra_cost}` : "—"} /><Metric icon={Cloud} label="Carbon" value={run?.state.metrics.extra_carbon ?? "—"} unit="kg" /></div></Panel>
+        <Panel className="overflow-hidden"><div className="border-b border-[#203b31] px-5 py-4"><h3 className="text-sm font-semibold">Supply partners</h3></div><div className="space-y-2 p-3">{(run?.state.vendors || []).map(v => <div key={v.id} className="rounded-xl bg-[#091510] p-3"><div className="flex items-center justify-between"><span className="text-xs font-semibold">{v.name}</span><span className="font-mono text-xs text-[#5bdfa0]">{Math.round(v.reliability * 100)}%</span></div><div className="mt-2 flex justify-between text-[10px] text-[#6e887c]"><span>${v.unit_cost}/unit</span><span>{v.lead_time_hours}h lead time</span></div></div>)}{!run && <p className="py-5 text-center text-xs text-[#627b70]">Awaiting network scan</p>}</div></Panel>
+        <Panel className={`overflow-hidden ${run?.verification?.passed ? "border-[#347855]" : ""}`}><div className="flex items-center gap-3 border-b border-[#203b31] px-5 py-4"><div className={`grid h-9 w-9 place-items-center rounded-lg ${run?.verification?.passed ? "bg-[#56e39a] text-[#052117]" : "bg-[#172720] text-[#668278]"}`}><FileCheck2 size={19} /></div><div><p className="text-[10px] font-bold uppercase tracking-widest text-[#708a7f]">Verification certificate</p><h3 className="text-sm font-semibold">{run?.verification?.passed ? "Recovery verified" : "Pending evidence"}</h3></div></div><div className="p-4">{run?.verification?.checks ? <div className="space-y-2.5">{run.verification.checks.map(check => <div key={check.name} className="flex gap-2.5"><div className={`mt-0.5 grid h-5 w-5 shrink-0 place-items-center rounded-full ${check.passed ? "bg-emerald-900 text-emerald-300" : "bg-red-900 text-red-300"}`}>{check.passed ? <Check size={12} /> : <X size={12} />}</div><div><p className="text-xs font-medium">{check.name}</p><p className="mt-0.5 text-[10px] leading-4 text-[#71897f]">{check.detail}</p></div></div>)}</div> : <p className="py-5 text-center text-xs leading-5 text-[#627b70]">A certificate is issued only after every contract check passes.</p>}</div>{run?.verification?.passed && <div className="flex items-center justify-between border-t border-[#28503e] bg-[#10271d] px-4 py-3 text-[10px] uppercase tracking-wider text-[#6be6a6]"><span>Evidence complete</span><BadgeCheck size={16} /></div>}</Panel>
+      </div>
+    </div>
+  </main>;
+}
