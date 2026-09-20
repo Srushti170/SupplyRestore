@@ -70,6 +70,11 @@ class GroqProvider:
         ]
         self.pending_call_id: str | None = None
 
+    @property
+    def reasoning_effort(self) -> str:
+        """Use the reasoning level accepted by the configured Groq model family."""
+        return "low" if self.model.startswith("openai/gpt-oss-") else "none"
+
     def select_action(self, comparison: dict, phase: str) -> tuple[str, dict]:
         """Ask the live model to choose an action from a completed deterministic comparison."""
         action_tools = [
@@ -104,7 +109,7 @@ class GroqProvider:
                     parallel_tool_calls=False,
                     temperature=0,
                     max_completion_tokens=128,
-                    reasoning_effort="none",
+                    reasoning_effort=self.reasoning_effort,
                 )
             except Exception as exc:
                 if attempt == 0 and ("tool_use_failed" in str(exc) or "not in request.tools" in str(exc)):
@@ -130,7 +135,7 @@ class GroqProvider:
                 response = self.client.chat.completions.create(
                     model=self.model, messages=self.messages, tools=groq_tool_definitions(),
                     tool_choice="auto", parallel_tool_calls=False, temperature=0,
-                    max_completion_tokens=128, reasoning_effort="none",
+                    max_completion_tokens=128, reasoning_effort=self.reasoning_effort,
                 )
             except Exception as exc:
                 error_text = str(exc)
